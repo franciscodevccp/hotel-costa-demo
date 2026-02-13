@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+:root {
+  /* Hotel de la Costa - Paleta */
+  --background: #f8fafc;
+  --foreground: #171717;
+  --primary: #1e3a5f;
+  --primary-foreground: #ffffff;
+  --secondary: #3b82f6;
+  --secondary-foreground: #ffffff;
+  --success: #22c55e;
+  --destructive: #ef4444;
+  --warning: #eab308;
+  --muted: #6b7280;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --border: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  overflow-x: hidden;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* Scrollbar personalizado - WebKit (Chrome, Safari, Edge) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+  border-radius: 10px;
+  transition: background 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.5);
+}
+
+/* Scrollbar para el sidebar (tema oscuro) */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  transition: background 0.2s ease;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Evitar borde de enfoque negro en el gráfico de pagos */
+.payments-chart *:focus,
+.reports-chart *:focus {
+  outline: none;
+}
+
+/* Quitar sombra de los tooltips de Recharts en reportes */
+.reports-chart .recharts-tooltip-wrapper,
+.reports-chart .recharts-tooltip-wrapper *,
+.reports-chart .recharts-default-tooltip {
+  box-shadow: none !important;
+}
+
+/* Calendario más compacto (date-picker-input) */
+.rdp-compact .rdp-root {
+  --rdp-day-height: 32px;
+  --rdp-day-width: 32px;
+  --rdp-day_button-height: 30px;
+  --rdp-day_button-width: 30px;
+  --rdp-nav_button-height: 1.75rem;
+  --rdp-nav_button-width: 1.75rem;
+  --rdp-nav-height: 2rem;
+  --rdp-weekday-padding: 0.25rem 0;
+  font-size: 0.8125rem;
+}
+.rdp-compact .rdp-caption_label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.rdp-compact .rdp-day_button {
+  font-size: 0.8125rem;
+}
+
+/* Selects personalizados (dropdowns) - diseño Hotel de la Costa */
+.select-custom {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--foreground);
+  background-color: var(--background);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.select-custom:hover {
+  border-color: var(--muted);
+}
+.select-custom:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.2);
+}
+.select-custom option {
+  padding: 0.5rem;
+  background: var(--card);
+  color: var(--foreground);
+}
+
+/* Dropdown del CustomSelect - consistente con tarjetas y calendario */
+.custom-select-dropdown {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+}
+
+/* Scroll sin barra visible en el dropdown */
+.custom-select-dropdown-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.custom-select-dropdown-scroll::-webkit-scrollbar {
+  display: none;
+}
