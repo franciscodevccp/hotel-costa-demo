@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   FileText,
   Plus,
@@ -11,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { createInvoice, syncInvoiceWithInventory } from "@/app/dashboard/invoices/actions";
 
 export interface InvoiceItem {
   productId: string;
@@ -40,12 +42,20 @@ export function InvoicesView({
   invoices: Invoice[];
   products: ProductOption[];
 }) {
+  const router = useRouter();
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [search, setSearch] = useState("");
   const [folioFilter, setFolioFilter] = useState("");
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setInvoices(initialInvoices);
+  }, [initialInvoices]);
 
   // Form state
   const [formFolio, setFormFolio] = useState("");
@@ -168,20 +178,26 @@ export function InvoicesView({
     setFormItems((prev) => prev.filter((i) => i.productId !== productId));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formFolio.trim()) return;
-    const inv: Invoice = {
-      id: String(Date.now()),
+    setSubmitError(null);
+    setSaving(true);
+    const total = formTotal || formItems.reduce((s, i) => s + i.quantity * (i.unitPrice || 0), 0);
+    const result = await createInvoice({}, {
       folio: formFolio.trim().toUpperCase(),
-      date: formDate,
-      total: formTotal || formItems.reduce((s, i) => s + i.quantity * (i.unitPrice || 0), 0),
       type: formType,
+      date: formDate,
+      total,
       photoUrls: formPhotos,
-      items: [...formItems],
-      syncedWithInventory: false,
-    };
-    setInvoices((prev) => [inv, ...prev]);
+      items: formItems.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice || 0 })),
+    });
+    setSaving(false);
+    if (result.error) {
+      setSubmitError(result.error);
+      return;
+    }
+    router.refresh();
     resetForm();
     setShowAddModal(false);
   };
@@ -201,17 +217,20 @@ export function InvoicesView({
     setNewItemUnitPrice(0);
   };
 
-  const handleSync = (invoice: Invoice) => {
+  const handleSync = async (invoice: Invoice) => {
+    setSyncingId(invoice.id);
+    const result = await syncInvoiceWithInventory({}, invoice.id);
+    setSyncingId(null);
+    if (result.error) return;
     setInvoices((prev) =>
       prev.map((i) =>
         i.id === invoice.id ? { ...i, syncedWithInventory: true } : i
       )
     );
     setSelectedInvoice((prev) =>
-      prev?.id === invoice.id
-        ? { ...prev, syncedWithInventory: true }
-        : prev
+      prev?.id === invoice.id ? { ...prev, syncedWithInventory: true } : prev
     );
+    router.refresh();
   };
 
   return (
@@ -516,22 +535,28 @@ export function InvoicesView({
                 )}
               </div>
 
+              {submitError && (
+                <p className="text-sm text-[var(--destructive)]">{submitError}</p>
+              )}
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
+                    setSubmitError(null);
                     resetForm();
                     setShowAddModal(false);
                   }}
-                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)]"
+                  disabled={saving}
+                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                  disabled={saving}
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                 >
-                  Guardar
+                  {saving ? "Guardando…" : "Guardar"}
                 </button>
               </div>
             </form>
@@ -615,10 +640,11 @@ export function InvoicesView({
                 <button
                   type="button"
                   onClick={() => handleSync(selectedInvoice)}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--success)]/50 bg-[var(--success)]/5 py-2.5 text-sm font-medium text-[var(--success)] hover:bg-[var(--success)]/10"
+                  disabled={syncingId === selectedInvoice.id}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--success)]/50 bg-[var(--success)]/5 py-2.5 text-sm font-medium text-[var(--success)] hover:bg-[var(--success)]/10 disabled:opacity-50"
                 >
                   <Link2 className="h-4 w-4" />
-                  Sincronizar con inventario
+                  {syncingId === selectedInvoice.id ? "Sincronizando…" : "Sincronizar con inventario"}
                 </button>
               )}
               {selectedInvoice.syncedWithInventory && (

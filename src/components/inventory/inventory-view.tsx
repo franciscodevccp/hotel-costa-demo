@@ -27,6 +27,14 @@ export interface InventoryProduct {
 
 type StockFilter = "" | "more" | "less";
 
+/** Normaliza texto para búsqueda: minúsculas y sin tildes (azúcar → azucar) */
+function normalizeForSearch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
 type ProductRow = Awaited<ReturnType<typeof import("@/lib/queries/inventory").getProducts>>[number];
 
 function toInventoryProduct(p: ProductRow): InventoryProduct {
@@ -37,8 +45,9 @@ function toInventoryProduct(p: ProductRow): InventoryProduct {
     stock: p.stock,
     minStock: p.minStock,
     unit: p.unit,
-    entradas: 0,
-    salidas: 0,
+    entradas: p.entradas ?? 0,
+    salidas: p.salidas ?? 0,
+    folio: p.folio ?? undefined,
   };
 }
 
@@ -84,11 +93,11 @@ export function InventoryView({ products: initialProducts }: { products: Product
     filtered = filtered.sort((a, b) => a.stock - b.stock);
   }
   if (search) {
-    const q = search.toLowerCase();
+    const q = normalizeForSearch(search);
     filtered = filtered.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
+        normalizeForSearch(p.name).includes(q) ||
+        normalizeForSearch(p.category).includes(q)
     );
   }
 
