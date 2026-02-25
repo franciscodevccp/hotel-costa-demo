@@ -20,73 +20,30 @@ export interface InventoryProduct {
   stock: number;
   minStock: number;
   unit: string;
-  entradas: number;
-  salidas: number;
+  entradas?: number;
+  salidas?: number;
   folio?: string;
 }
 
-const MOCK_INITIAL_PRODUCTS: InventoryProduct[] = [
-  {
-    id: "1",
-    name: "Jabón de tocador",
-    category: "Aseo",
-    stock: 12,
-    minStock: 20,
-    unit: "unidad",
-    entradas: 50,
-    salidas: 38,
-    folio: "B-0001",
-  },
-  {
-    id: "2",
-    name: "Papel higiénico",
-    category: "Aseo",
-    stock: 8,
-    minStock: 15,
-    unit: "rollo",
-    entradas: 30,
-    salidas: 22,
-    folio: "B-0001",
-  },
-  {
-    id: "3",
-    name: "Shampoo",
-    category: "Aseo",
-    stock: 45,
-    minStock: 10,
-    unit: "unidad",
-    entradas: 60,
-    salidas: 15,
-    folio: "F-0002",
-  },
-  {
-    id: "4",
-    name: "Toalla grande",
-    category: "Ropa de cama",
-    stock: 25,
-    minStock: 30,
-    unit: "unidad",
-    entradas: 40,
-    salidas: 15,
-    folio: "F-0002",
-  },
-  {
-    id: "5",
-    name: "Café molido",
-    category: "Desayuno",
-    stock: 3,
-    minStock: 10,
-    unit: "kg",
-    entradas: 8,
-    salidas: 5,
-    folio: "B-0003",
-  },
-];
-
 type StockFilter = "" | "more" | "less";
 
-export function InventoryView() {
-  const [products, setProducts] = useState<InventoryProduct[]>(MOCK_INITIAL_PRODUCTS);
+type ProductRow = Awaited<ReturnType<typeof import("@/lib/queries/inventory").getProducts>>[number];
+
+function toInventoryProduct(p: ProductRow): InventoryProduct {
+  return {
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    stock: p.stock,
+    minStock: p.minStock,
+    unit: p.unit,
+    entradas: 0,
+    salidas: 0,
+  };
+}
+
+export function InventoryView({ products: initialProducts }: { products: ProductRow[] }) {
+  const [products, setProducts] = useState<InventoryProduct[]>(() => initialProducts.map(toInventoryProduct));
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMovementModal, setShowMovementModal] = useState<{
     product: InventoryProduct;
@@ -167,8 +124,8 @@ export function InventoryView() {
         return {
           ...p,
           stock: newStock,
-          entradas: type === "entrada" ? p.entradas + movementQty : p.entradas,
-          salidas: type === "salida" ? p.salidas + movementQty : p.salidas,
+          entradas: type === "entrada" ? (p.entradas ?? 0) + movementQty : (p.entradas ?? 0),
+          salidas: type === "salida" ? (p.salidas ?? 0) + movementQty : (p.salidas ?? 0),
           folio: folioToSave ?? p.folio,
         };
       })

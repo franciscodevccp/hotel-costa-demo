@@ -10,13 +10,14 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { MOCK_PRODUCTS } from "@/lib/mock-inventory-products";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 
 export interface InvoiceItem {
   productId: string;
   productName: string;
   quantity: number;
   unit: string;
+  unitPrice: number;
 }
 
 export interface Invoice {
@@ -30,49 +31,16 @@ export interface Invoice {
   syncedWithInventory: boolean;
 }
 
-const MOCK_INVOICES: Invoice[] = [
-  {
-    id: "1",
-    folio: "B-0001",
-    date: "2026-02-12",
-    total: 45000,
-    type: "boleta",
-    photoUrls: [],
-    items: [
-      { productId: "1", productName: "Jabón de tocador", quantity: 10, unit: "unidad" },
-      { productId: "2", productName: "Papel higiénico", quantity: 5, unit: "rollo" },
-    ],
-    syncedWithInventory: true,
-  },
-  {
-    id: "2",
-    folio: "F-0002",
-    date: "2026-02-11",
-    total: 125000,
-    type: "factura",
-    photoUrls: [],
-    items: [
-      { productId: "4", productName: "Toalla grande", quantity: 8, unit: "unidad" },
-      { productId: "3", productName: "Shampoo", quantity: 15, unit: "unidad" },
-    ],
-    syncedWithInventory: true,
-  },
-  {
-    id: "3",
-    folio: "B-0003",
-    date: "2026-02-10",
-    total: 28000,
-    type: "boleta",
-    photoUrls: [],
-    items: [
-      { productId: "5", productName: "Café molido", quantity: 2, unit: "kg" },
-    ],
-    syncedWithInventory: false,
-  },
-];
+type ProductOption = Awaited<ReturnType<typeof import("@/lib/queries/invoices").getProductsForInvoices>>[number];
 
-export function InvoicesView() {
-  const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES);
+export function InvoicesView({
+  invoices: initialInvoices,
+  products,
+}: {
+  invoices: Invoice[];
+  products: ProductOption[];
+}) {
+  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [search, setSearch] = useState("");
@@ -88,6 +56,9 @@ export function InvoicesView() {
   const [formItems, setFormItems] = useState<InvoiceItem[]>([]);
   const [newItemProduct, setNewItemProduct] = useState("");
   const [newItemQty, setNewItemQty] = useState(1);
+  const [newItemUnitPrice, setNewItemUnitPrice] = useState(0);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
 
   const filteredInvoices = invoices.filter((inv) => {
     const matchSearch =
@@ -106,34 +77,73 @@ export function InvoicesView() {
       minimumFractionDigits: 0,
     }).format(amount);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const formatTotalInput = (n: number) =>
+    n === 0 ? "" : new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(n);
+
+  const parseTotalInput = (s: string) => {
+    const digits = s.replace(/\D/g, "");
+    return digits === "" ? 0 : parseInt(digits, 10);
+  };
+
+  const formatPriceInput = (n: number) =>
+    n === 0 ? "" : new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(n);
+  const parsePriceInput = (s: string) => {
+    const digits = s.replace(/\D/g, "");
+    return digits === "" ? 0 : parseInt(digits, 10);
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
-    const newUrls: string[] = [];
-    for (let i = 0; i < Math.min(files.length, 5); i++) {
-      newUrls.push(URL.createObjectURL(files[i]));
+    const total = formPhotos.length + files.length;
+    if (total > 5) {
+      setPhotoUploadError(`Máximo 5 fotos. Ya tienes ${formPhotos.length}.`);
+      e.target.value = "";
+      return;
     }
-    setFormPhotos((prev) => [...prev, ...newUrls].slice(0, 5));
-    e.target.value = "";
+    setPhotoUploadError(null);
+    setUploadingPhotos(true);
+    try {
+      const formData = new FormData();
+      const toAdd = Math.min(files.length, 5 - formPhotos.length);
+      for (let i = 0; i < toAdd; i++) formData.append("photos", files[i]);
+      const res = await fetch("/api/upload/invoice-photos", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPhotoUploadError(data?.error ?? "Error al subir fotos");
+        e.target.value = "";
+        return;
+      }
+      if (data?.urls?.length) {
+        setFormPhotos((prev) => [...prev, ...data.urls].slice(0, 5));
+      }
+    } finally {
+      setUploadingPhotos(false);
+      e.target.value = "";
+    }
   };
 
   const removePhoto = (index: number) => {
     setFormPhotos((prev) => {
       const url = prev[index];
       if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      setPhotoUploadError(null);
       return prev.filter((_, i) => i !== index);
     });
   };
 
   const addItem = () => {
-    const product = MOCK_PRODUCTS.find((p) => p.id === newItemProduct);
+    const product = products.find((p) => p.id === newItemProduct);
     if (!product) return;
     const existing = formItems.find((i) => i.productId === product.id);
     if (existing) {
       setFormItems((prev) =>
         prev.map((i) =>
           i.productId === product.id
-            ? { ...i, quantity: i.quantity + newItemQty }
+            ? { ...i, quantity: i.quantity + newItemQty, unitPrice: newItemUnitPrice || i.unitPrice }
             : i
         )
       );
@@ -145,11 +155,13 @@ export function InvoicesView() {
           productName: product.name,
           quantity: newItemQty,
           unit: product.unit,
+          unitPrice: newItemUnitPrice,
         },
       ]);
     }
     setNewItemProduct("");
     setNewItemQty(1);
+    setNewItemUnitPrice(0);
   };
 
   const removeItem = (productId: string) => {
@@ -163,7 +175,7 @@ export function InvoicesView() {
       id: String(Date.now()),
       folio: formFolio.trim().toUpperCase(),
       date: formDate,
-      total: formTotal || formItems.reduce((s, i) => s + i.quantity * 1000, 0),
+      total: formTotal || formItems.reduce((s, i) => s + i.quantity * (i.unitPrice || 0), 0),
       type: formType,
       photoUrls: formPhotos,
       items: [...formItems],
@@ -186,6 +198,7 @@ export function InvoicesView() {
     setFormItems([]);
     setNewItemProduct("");
     setNewItemQty(1);
+    setNewItemUnitPrice(0);
   };
 
   const handleSync = (invoice: Invoice) => {
@@ -354,11 +367,11 @@ export function InvoicesView() {
                   <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
                     Fecha
                   </label>
-                  <input
-                    type="date"
+                  <DatePickerInput
                     value={formDate}
-                    onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    onChange={setFormDate}
+                    className="w-full"
+                    aria-label="Fecha de la boleta o factura"
                   />
                 </div>
                 <div>
@@ -366,12 +379,10 @@ export function InvoicesView() {
                     Total (CLP)
                   </label>
                   <input
-                    type="number"
-                    min={0}
-                    value={formTotal || ""}
-                    onChange={(e) =>
-                      setFormTotal(parseInt(e.target.value, 10) || 0)
-                    }
+                    type="text"
+                    inputMode="numeric"
+                    value={formatTotalInput(formTotal)}
+                    onChange={(e) => setFormTotal(parseTotalInput(e.target.value))}
                     placeholder="Opcional"
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   />
@@ -394,11 +405,19 @@ export function InvoicesView() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] bg-[var(--background)] py-6 text-sm text-[var(--muted)] transition-colors hover:border-[var(--primary)]/50 hover:bg-[var(--primary)]/5 hover:text-[var(--foreground)]"
+                  disabled={uploadingPhotos || formPhotos.length >= 5}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] bg-[var(--background)] py-6 text-sm text-[var(--muted)] transition-colors hover:border-[var(--primary)]/50 hover:bg-[var(--primary)]/5 hover:text-[var(--foreground)] disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <Upload className="h-5 w-5" />
-                  Agregar fotos (hasta 5)
+                  {uploadingPhotos
+                    ? "Subiendo y convirtiendo a WebP..."
+                    : `Agregar fotos (hasta 5)${formPhotos.length > 0 ? ` — ${formPhotos.length}/5` : ""}`}
                 </button>
+                {photoUploadError && (
+                  <p className="mt-1.5 text-sm text-[var(--destructive)]">
+                    {photoUploadError}
+                  </p>
+                )}
                 {formPhotos.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {formPhotos.map((url, i) => (
@@ -429,14 +448,14 @@ export function InvoicesView() {
                 <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
                   Productos (vincula con inventario)
                 </label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <select
                     value={newItemProduct}
                     onChange={(e) => setNewItemProduct(e.target.value)}
-                    className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    className="min-w-[140px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   >
                     <option value="">Seleccionar producto</option>
-                    {MOCK_PRODUCTS.map((p) => (
+                    {products.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} ({p.unit})
                       </option>
@@ -449,7 +468,18 @@ export function InvoicesView() {
                     onChange={(e) =>
                       setNewItemQty(parseInt(e.target.value, 10) || 1)
                     }
-                    className="w-20 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    className="w-16 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    placeholder="Cant."
+                    aria-label="Cantidad"
+                  />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formatPriceInput(newItemUnitPrice)}
+                    onChange={(e) => setNewItemUnitPrice(parsePriceInput(e.target.value))}
+                    placeholder="Precio unit."
+                    className="w-28 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    aria-label="Precio unitario CLP"
                   />
                   <button
                     type="button"
@@ -465,15 +495,18 @@ export function InvoicesView() {
                     {formItems.map((item) => (
                       <li
                         key={item.productId}
-                        className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm"
+                        className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm"
                       >
                         <span className="text-[var(--foreground)]">
                           {item.productName} · {item.quantity} {item.unit}
+                          {item.unitPrice > 0 && (
+                            <> · {formatCLP(item.unitPrice)} = {formatCLP(item.quantity * item.unitPrice)}</>
+                          )}
                         </span>
                         <button
                           type="button"
                           onClick={() => removeItem(item.productId)}
-                          className="rounded p-1 text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                          className="shrink-0 rounded p-1 text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -571,6 +604,9 @@ export function InvoicesView() {
                     <span className="text-[var(--foreground)]">{item.productName}</span>
                     <span className="font-medium text-[var(--muted)]">
                       {item.quantity} {item.unit}
+                      {item.unitPrice > 0 && (
+                        <> · {formatCLP(item.unitPrice)} = {formatCLP(item.quantity * item.unitPrice)}</>
+                      )}
                     </span>
                   </li>
                 ))}

@@ -1,38 +1,27 @@
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
-import type { MockSession } from "@/lib/types/database";
+import type { UserRole } from "@/lib/types/database";
+import { requireAuth } from "@/lib/require-auth";
 import { DashboardShell } from "@/app/dashboard/dashboard-shell";
-
-const COOKIE_NAME = "mock_session";
-
-async function getMockSession(): Promise<MockSession | null> {
-  const cookieStore = await cookies();
-  const cookie = cookieStore.get(COOKIE_NAME)?.value;
-  if (!cookie) return null;
-  try {
-    return JSON.parse(cookie) as MockSession;
-  } catch {
-    return null;
-  }
-}
+import { prisma } from "@/lib/db";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getMockSession();
+  const session = await requireAuth();
+  const establishment = await prisma.establishment.findUnique({
+    where: { id: session.user.establishmentId },
+    select: { name: true },
+  });
+  const establishmentName = establishment?.name ?? "Hotel";
 
-  if (!session) {
-    redirect("/login");
-  }
-
-  const establishmentName = "Sede Central";
+  const userRole: UserRole = session.user.role === "ADMIN" ? "admin" : "receptionist";
 
   return (
     <DashboardShell
-      userName={session.full_name}
-      userRole={session.role}
+      userName={session.user.name}
+      userRole={userRole}
       establishmentName={establishmentName}
     >
       {children}

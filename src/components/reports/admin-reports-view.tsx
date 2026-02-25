@@ -29,35 +29,22 @@ const formatCLP = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
-// Datos de ejemplo para febrero 2026
-const dailyIncome: { fecha: string; ingresos: number }[] = [];
-const dailyOccupancy: { fecha: string; ocupacion: number }[] = [];
-for (let d = 1; d <= 28; d++) {
-  const date = `2026-02-${String(d).padStart(2, "0")}`;
-  dailyIncome.push({
-    fecha: format(new Date(date), "d MMM", { locale: es }),
-    ingresos: 80000 + Math.round(Math.random() * 120000),
-  });
-  dailyOccupancy.push({
-    fecha: format(new Date(date), "d MMM", { locale: es }),
-    ocupacion: 50 + Math.round(Math.random() * 45),
-  });
-}
+type ReportData = Awaited<ReturnType<typeof import("@/lib/queries/reports").getReportData>>;
 
-const paymentBreakdown = [
-  { name: "Efectivo", value: 420000, color: "var(--success)" },
-  { name: "Transferencia", value: 580000, color: "var(--secondary)" },
-  { name: "Débito", value: 180000, color: "#8b5cf6" },
-  { name: "Crédito", value: 220000, color: "#7c3aed" },
-];
-
-const topRooms = [
-  { habitacion: "Hab. 102", reservas: 18 },
-  { habitacion: "Hab. 201", reservas: 16 },
-  { habitacion: "Hab. 103", reservas: 14 },
-  { habitacion: "Hab. 301", reservas: 12 },
-  { habitacion: "Hab. 202", reservas: 10 },
-];
+const METHOD_LABELS: Record<string, string> = {
+  CASH: "Efectivo",
+  DEBIT: "Débito",
+  CREDIT: "Crédito",
+  TRANSFER: "Transferencia",
+  OTHER: "Otro",
+};
+const METHOD_COLORS: Record<string, string> = {
+  CASH: "var(--success)",
+  DEBIT: "#8b5cf6",
+  CREDIT: "#7c3aed",
+  TRANSFER: "var(--secondary)",
+  OTHER: "var(--muted)",
+};
 
 /** Etiqueta del donut: color del segmento y separación correcta de la línea (desplazamiento radial) */
 function renderPieLabel(props: {
@@ -102,12 +89,33 @@ function renderPieLabel(props: {
   );
 }
 
-export function AdminReportsView() {
-  const monthLabel = "Febrero 2026";
-  const ocupacionPromedio = 72;
-  const ingresoTotal = 2_450_000;
-  const ticketPromedio = 42_500;
-  const comparacionMesAnterior = 8; // +8% vs enero
+export function AdminReportsView({ data }: { data: ReportData }) {
+  const now = new Date();
+  const monthLabel = format(now, "MMMM yyyy", { locale: es });
+  const ingresoTotal = data.monthlyTotal;
+  const prevTotal = data.prevMonthlyTotal;
+  const comparacionMesAnterior = prevTotal
+    ? Math.round(((ingresoTotal - prevTotal) / prevTotal) * 100)
+    : 0;
+  const dailyIncomeArray = Object.entries(data.dailyIncome)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dateStr, ingresos]) => ({
+      fecha: format(new Date(dateStr), "d MMM", { locale: es }),
+      ingresos,
+    }));
+  const paymentBreakdownWithColors = data.paymentBreakdown.map((r) => ({
+    name: METHOD_LABELS[r.name] ?? r.name,
+    value: r.value,
+    color: METHOD_COLORS[r.name] ?? "var(--muted)",
+  }));
+  const topRoomsFormatted = data.topRooms.map((r) => ({
+    habitacion: `Hab. ${r.roomNumber}`,
+    reservas: r.count,
+  }));
+  const ocupacionPromedio = 0; // no calculado en reportes por ahora
+  const ticketPromedio = 0; // no tenemos noches vendidas en el reporte actual
+  const daysWithData = Object.keys(data.dailyIncome).length;
+  const dailyOccupancyArray = dailyIncomeArray.map(({ fecha }) => ({ fecha, ocupacion: 0 }));
 
   return (
     <div className="space-y-8">
@@ -149,7 +157,7 @@ export function AdminReportsView() {
             title="Ingreso total"
             value={formatCLP(ingresoTotal)}
             icon={DollarSign}
-            trend={{ value: 12, isPositive: true }}
+            trend={{ value: comparacionMesAnterior, isPositive: comparacionMesAnterior >= 0 }}
           />
           <StatCard
             title="Ticket promedio por noche"
@@ -160,7 +168,7 @@ export function AdminReportsView() {
           />
           <StatCard
             title="Días con datos"
-            value="28"
+            value={String(daysWithData)}
             icon={Calendar}
             description="Días del mes con actividad"
           />
@@ -180,7 +188,7 @@ export function AdminReportsView() {
             <LineChart
               id="incomeChart"
               syncId="income"
-              data={dailyIncome}
+              data={dailyIncomeArray}
               margin={{ top: 5, right: 10, left: -10, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -238,7 +246,7 @@ export function AdminReportsView() {
             <AreaChart
               id="occupancyChart"
               syncId="occupancy"
-              data={dailyOccupancy}
+              data={dailyOccupancyArray}
               margin={{ top: 5, right: 10, left: -10, bottom: 0 }}
             >
               <defs>
@@ -302,7 +310,7 @@ export function AdminReportsView() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={paymentBreakdown}
+                  data={paymentBreakdownWithColors}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
@@ -313,7 +321,7 @@ export function AdminReportsView() {
                   isAnimationActive={false}
                   label={renderPieLabel}
                 >
-                  {paymentBreakdown.map((entry, i) => (
+                  {paymentBreakdownWithColors.map((entry, i) => (
                     <Cell key={i} fill={entry.color} />
                   ))}
                 </Pie>
@@ -343,7 +351,7 @@ export function AdminReportsView() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={topRooms}
+                data={topRoomsFormatted}
                 layout="vertical"
                 margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
               >

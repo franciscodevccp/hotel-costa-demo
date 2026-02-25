@@ -1,242 +1,596 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Plus, Users, Mail, Phone, MapPin, Calendar, DollarSign } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState } from "react";
+import { createPortal } from "react-dom";
+import { Search, Users, Mail, Phone, MapPin, Lock, X, Calendar, Plus } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
+import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
 
-interface Guest {
-    id: string;
-    full_name: string;
-    email: string;
-    phone: string;
-    nationality: string;
-    id_number: string;
-    status: "active" | "checked_out" | "blacklisted";
-    current_room?: string;
-    check_in_date?: string;
-    check_out_date?: string;
-    total_stays: number;
-    total_spent: number;
+type GuestRow = Awaited<ReturnType<typeof import("@/lib/queries/guests").getGuests>>[number];
+
+const STATUS_LABELS: Record<string, string> = {
+  PENDING: "Pendiente",
+  CONFIRMED: "Confirmada",
+  CHECKED_IN: "Check-in",
+  CHECKED_OUT: "Check-out",
+  CANCELLED: "Cancelada",
+  NO_SHOW: "No show",
+};
+
+function toStatus(g: GuestRow): "active" | "checked_out" | "blacklisted" {
+  if (g.isBlacklisted) return "blacklisted";
+  return "active";
 }
 
-export function AdminGuestsView() {
-    const [statusFilter, setStatusFilter] = useState("");
-    // Datos de ejemplo
-    const guests: Guest[] = [
-        {
-            id: "1",
-            full_name: "María González",
-            email: "maria@example.com",
-            phone: "+56912345678",
-            nationality: "Chile",
-            id_number: "12.345.678-9",
-            status: "active",
-            current_room: "102",
-            check_in_date: "2026-02-12",
-            check_out_date: "2026-02-15",
-            total_stays: 5,
-            total_spent: 450000,
-        },
-        {
-            id: "2",
-            full_name: "Carlos Ruiz",
-            email: "carlos@example.com",
-            phone: "+56923456789",
-            nationality: "Argentina",
-            id_number: "23.456.789-0",
-            status: "active",
-            current_room: "204",
-            check_in_date: "2026-02-13",
-            check_out_date: "2026-02-16",
-            total_stays: 2,
-            total_spent: 180000,
-        },
-        {
-            id: "3",
-            full_name: "Ana Martínez",
-            email: "ana@example.com",
-            phone: "+56934567890",
-            nationality: "Chile",
-            id_number: "34.567.890-1",
-            status: "checked_out",
-            total_stays: 8,
-            total_spent: 720000,
-        },
-    ];
+const statusColors: Record<string, string> = {
+  active: "bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/20",
+  checked_out: "bg-[var(--muted)]/10 text-[var(--muted)] border-[var(--muted)]/20",
+  blacklisted: "bg-[var(--destructive)]/10 text-[var(--destructive)] border-[var(--destructive)]/20",
+};
 
-    const statusColors = {
-        active: "bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/20",
-        checked_out: "bg-[var(--muted)]/10 text-[var(--muted)] border-[var(--muted)]/20",
-        blacklisted: "bg-[var(--destructive)]/10 text-[var(--destructive)] border-[var(--destructive)]/20",
-    };
+const statusLabels: Record<string, string> = {
+  active: "Activo",
+  checked_out: "Check-out",
+  blacklisted: "Bloqueado",
+};
 
-    const statusLabels = {
-        active: "Activo",
-        checked_out: "Check-out",
-        blacklisted: "Bloqueado",
-    };
+export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
+  const router = useRouter();
+  const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [guestToEdit, setGuestToEdit] = useState<GuestRow | null>(null);
+  const [guestHistory, setGuestHistory] = useState<GuestRow | null>(null);
+  const [historyReservations, setHistoryReservations] = useState<GuestReservationItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showEditEmergencyContact, setShowEditEmergencyContact] = useState(false);
+  const [editEmergencyName, setEditEmergencyName] = useState("");
+  const [editEmergencyPhone, setEditEmergencyPhone] = useState("");
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
+  const [blockReasonInput, setBlockReasonInput] = useState("");
+  const [blockError, setBlockError] = useState<string | null>(null);
+  const [updateState, updateFormAction] = useActionState(updateGuest, {} as UpdateGuestState);
 
-    const formatCLP = (amount: number) => {
-        return new Intl.NumberFormat('es-CL', {
-            style: 'currency',
-            currency: 'CLP',
-            minimumFractionDigits: 0,
-        }).format(amount);
-    };
+  useEffect(() => {
+    if (blockModalOpen && guestToEdit) {
+      setBlockReasonInput(guestToEdit.blockReason ?? "");
+      setBlockError(null);
+    }
+  }, [blockModalOpen, guestToEdit]);
 
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('es-CL', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-        });
-    };
+  useEffect(() => {
+    if (guestToEdit?.emergencyContact) {
+      const parts = guestToEdit.emergencyContact.split(" · ");
+      setEditEmergencyName(parts[0]?.trim() ?? "");
+      setEditEmergencyPhone(parts[1]?.trim() ?? "");
+      setShowEditEmergencyContact(true);
+    } else {
+      setShowEditEmergencyContact(false);
+      setEditEmergencyName("");
+      setEditEmergencyPhone("");
+    }
+  }, [guestToEdit]);
 
-    return (
-        <div className="space-y-6">
-            {/* Header */}
-            {/* Header */}
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                    <h2 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">Gestión de Huéspedes</h2>
-                    <p className="mt-1 text-sm text-[var(--muted)]">Administra la información de todos los huéspedes</p>
-                </div>
-                <button className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto">
-                    <Plus className="h-4 w-4" />
-                    Nuevo Huésped
-                </button>
+  useEffect(() => {
+    if (guestHistory) {
+      setLoadingHistory(true);
+      getGuestReservationsAction(guestHistory.id).then((result) => {
+        setLoadingHistory(false);
+        if (Array.isArray(result)) setHistoryReservations(result);
+        else setHistoryReservations([]);
+      });
+    } else {
+      setHistoryReservations([]);
+    }
+  }, [guestHistory]);
+
+  useEffect(() => {
+    if (updateState?.success) {
+      setGuestToEdit(null);
+      router.refresh();
+    }
+  }, [updateState?.success, router]);
+
+  const filtered = guests.filter((g) => {
+    const status = toStatus(g);
+    const matchStatus = !statusFilter || status === statusFilter;
+    const term = search.toLowerCase();
+    const matchSearch =
+      !term ||
+      g.fullName.toLowerCase().includes(term) ||
+      (g.email?.toLowerCase().includes(term)) ||
+      (g.rut?.includes(term));
+    return matchStatus && matchSearch;
+  });
+
+  const formatCLP = (amount: number) =>
+    new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", minimumFractionDigits: 0 }).format(amount);
+  const activeCount = guests.filter((g) => toStatus(g) === "active").length;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">Gestión de Huéspedes</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">Administra la información de todos los huéspedes</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-xl border border-[var(--success)]/20 bg-gradient-to-br from-[var(--success)]/5 to-[var(--success)]/10 p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-[var(--success)]/20 p-2.5">
+              <Users className="h-5 w-5 text-[var(--success)]" />
             </div>
-
-            {/* Estadísticas rápidas */}
-            <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-[var(--success)]/20 bg-gradient-to-br from-[var(--success)]/5 to-[var(--success)]/10 p-5 shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="rounded-lg bg-[var(--success)]/20 p-2.5">
-                            <Users className="h-5 w-5 text-[var(--success)]" />
-                        </div>
-                        <p className="text-sm font-medium text-[var(--muted)]">Huéspedes Activos</p>
-                    </div>
-                    <p className="mt-3 text-4xl font-bold tracking-tight text-[var(--success)]">
-                        {guests.filter(g => g.status === "active").length}
-                    </p>
-                </div>
-                <div className="rounded-xl border border-[var(--primary)]/20 bg-gradient-to-br from-[var(--primary)]/5 to-[var(--primary)]/10 p-5 shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="rounded-lg bg-[var(--primary)]/20 p-2.5">
-                            <Users className="h-5 w-5 text-[var(--primary)]" />
-                        </div>
-                        <p className="text-sm font-medium text-[var(--muted)]">Total Huéspedes</p>
-                    </div>
-                    <p className="mt-3 text-4xl font-bold tracking-tight text-[var(--primary)]">{guests.length}</p>
-                </div>
-                <div className="rounded-xl border border-[var(--warning)]/20 bg-gradient-to-br from-[var(--warning)]/5 to-[var(--warning)]/10 p-5 shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <div className="rounded-lg bg-[var(--warning)]/20 p-2.5">
-                            <DollarSign className="h-5 w-5 text-[var(--warning)]" />
-                        </div>
-                        <p className="text-sm font-medium text-[var(--muted)]">Ingresos Totales</p>
-                    </div>
-                    <p className="mt-3 text-2xl font-bold tracking-tight text-[var(--warning)]">
-                        {formatCLP(guests.reduce((sum, g) => sum + g.total_spent, 0))}
-                    </p>
-                </div>
-            </div>
-
-            {/* Búsqueda y filtros */}
-            <div className="flex gap-3">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-                    <input
-                        type="text"
-                        placeholder="Buscar por nombre, email o RUT..."
-                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2.5 pl-10 pr-4 text-sm shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:shadow-md"
-                    />
-                </div>
-                <CustomSelect
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    placeholder="Todos los estados"
-                    options={[
-                        { value: "active", label: "Activos" },
-                        { value: "checked_out", label: "Check-out" },
-                        { value: "blacklisted", label: "Bloqueados" },
-                    ]}
-                    className="min-w-[160px]"
-                />
-            </div>
-
-            {/* Lista de huéspedes */}
-            <div className="space-y-3">
-                {guests.map((guest) => (
-                    <div
-                        key={guest.id}
-                        className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm transition-all hover:shadow-md"
-                    >
-                        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                            <div className="flex gap-4">
-                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10 shadow-sm">
-                                    <Users className="h-6 w-6 text-[var(--primary)]" />
-                                </div>
-                                <div className="flex-1 space-y-3">
-                                    {/* Encabezado: Nombre y Estado */}
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <h3 className="font-semibold text-[var(--foreground)]">{guest.full_name}</h3>
-                                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[guest.status]}`}>
-                                            {statusLabels[guest.status]}
-                                        </span>
-                                    </div>
-
-                                    {/* Detalles en Grid */}
-                                    <div className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm text-[var(--muted)] sm:grid-cols-2">
-                                        <div className="flex items-center gap-2">
-                                            <Mail className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                                            <span className="truncate">{guest.email}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Phone className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                                            <span>{guest.phone}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <MapPin className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                                            <span>{guest.nationality}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[var(--muted)]/70 font-mono text-xs border border-[var(--border)] rounded px-1">RUT</span>
-                                            <span>{guest.id_number}</span>
-                                        </div>
-
-                                        {guest.status === "active" && (
-                                            <div className="col-span-1 sm:col-span-2 flex items-center gap-2 mt-1 rounded-md bg-[var(--primary)]/5 p-2 text-[var(--primary)]">
-                                                <Calendar className="h-4 w-4 shrink-0" />
-                                                <span className="font-medium">
-                                                    Hab. {guest.current_room} · {formatDate(guest.check_in_date!)} - {formatDate(guest.check_out_date!)}
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Footer: Estadísticas y Acciones */}
-                            <div className="mt-2 flex flex-col gap-3 border-t border-[var(--border)] pt-4 md:mt-0 md:w-auto md:border-0 md:pt-0 md:text-right">
-                                <div className="flex items-center justify-between md:block">
-                                    <p className="text-sm text-[var(--muted)]">{guest.total_stays} {guest.total_stays === 1 ? 'estadía' : 'estadías'}</p>
-                                    <p className="text-lg font-bold text-[var(--foreground)]">{formatCLP(guest.total_spent)}</p>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3 md:flex md:justify-end">
-                                    <button className="flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]">
-                                        Editar
-                                    </button>
-                                    <button className="flex items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[var(--primary)]/90">
-                                        Ver historial
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
+            <p className="text-sm font-medium text-[var(--muted)]">Huéspedes Activos</p>
+          </div>
+          <p className="mt-3 text-4xl font-bold tracking-tight text-[var(--success)]">{activeCount}</p>
         </div>
-    );
+        <div className="rounded-xl border border-[var(--primary)]/20 bg-gradient-to-br from-[var(--primary)]/5 to-[var(--primary)]/10 p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-[var(--primary)]/20 p-2.5">
+              <Users className="h-5 w-5 text-[var(--primary)]" />
+            </div>
+            <p className="text-sm font-medium text-[var(--muted)]">Total Huéspedes</p>
+          </div>
+          <p className="mt-3 text-4xl font-bold tracking-tight text-[var(--primary)]">{guests.length}</p>
+        </div>
+        <div className="rounded-xl border border-[var(--destructive)]/20 bg-gradient-to-br from-[var(--destructive)]/5 to-[var(--destructive)]/10 p-5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-[var(--destructive)]/20 p-2.5">
+              <Lock className="h-5 w-5 text-[var(--destructive)]" />
+            </div>
+            <p className="text-sm font-medium text-[var(--muted)]">Bloqueados</p>
+          </div>
+          <p className="mt-3 text-4xl font-bold tracking-tight text-[var(--destructive)]">
+            {guests.filter((g) => g.isBlacklisted).length}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
+          <input
+            type="text"
+            placeholder="Buscar por nombre, email o RUT..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2.5 pl-10 pr-4 text-sm shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:shadow-md"
+          />
+        </div>
+        <CustomSelect
+          value={statusFilter}
+          onChange={setStatusFilter}
+          placeholder="Todos los estados"
+          options={[
+            { value: "active", label: "Activos" },
+            { value: "checked_out", label: "Check-out" },
+            { value: "blacklisted", label: "Bloqueados" },
+          ]}
+          className="min-w-[160px]"
+        />
+      </div>
+
+      <div className="space-y-3">
+        {filtered.length === 0 ? (
+          <p className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-[var(--muted)]">
+            No hay huéspedes que coincidan con los filtros.
+          </p>
+        ) : (
+          filtered.map((guest) => {
+            const status = toStatus(guest);
+            return (
+              <div
+                key={guest.id}
+                className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm transition-all hover:shadow-md"
+              >
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="flex gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10 shadow-sm">
+                      <Users className="h-6 w-6 text-[var(--primary)]" />
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="font-semibold text-[var(--foreground)]">{guest.fullName}</h3>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[status]}`}>
+                          {statusLabels[status]}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm text-[var(--muted)] sm:grid-cols-2">
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
+                          <span className="truncate">{guest.email ?? "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
+                          <span>{guest.phone ?? "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
+                          <span>{guest.nationality ?? "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded border border-[var(--border)] px-1 font-mono text-xs text-[var(--muted)]/70">RUT</span>
+                          <span>{guest.rut ?? "—"}</span>
+                        </div>
+                        {guest.emergencyContact && (
+                          <div className="flex items-center gap-2 sm:col-span-2">
+                            <Phone className="h-4 w-4 shrink-0 text-[var(--warning)]/80" />
+                            <span className="text-xs font-medium text-[var(--muted)]">Contacto de emergencia:</span>
+                            <span className="text-sm text-[var(--foreground)]">{guest.emergencyContact}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-col gap-3 border-t border-[var(--border)] pt-4 md:mt-0 md:border-0 md:pt-0 md:text-right">
+                    <div className="grid grid-cols-2 gap-3 md:flex md:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setGuestToEdit(guest)}
+                        className="flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGuestHistory(guest)}
+                        className="flex items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[var(--primary)]/90"
+                      >
+                        Ver historial
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Modal Editar huésped */}
+      {guestToEdit &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-black/50 p-4"
+            onClick={() => setGuestToEdit(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Editar huésped</h3>
+                <button
+                  type="button"
+                  onClick={() => setGuestToEdit(null)}
+                  className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
+                  aria-label="Cerrar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form action={updateFormAction} className="space-y-4">
+                <input type="hidden" name="guestId" value={guestToEdit.id} />
+                {updateState?.error && (
+                  <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                    {updateState.error}
+                  </p>
+                )}
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nombre completo *</label>
+                  <input
+                    type="text"
+                    name="fullName"
+                    required
+                    defaultValue={guestToEdit.fullName}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">RUT *</label>
+                  <input
+                    type="text"
+                    name="rut"
+                    required
+                    defaultValue={guestToEdit.rut ?? ""}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Email *</label>
+                  <input
+                    type="email"
+                    name="email"
+                    required
+                    defaultValue={guestToEdit.email ?? ""}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Teléfono *</label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    required
+                    defaultValue={guestToEdit.phone ?? ""}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div>
+                  {!showEditEmergencyContact ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditEmergencyContact(true)}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--muted)]/10 px-4 py-3 text-sm font-medium text-[var(--muted)] transition-colors hover:border-[var(--primary)]/50 hover:bg-[var(--primary)]/5 hover:text-[var(--primary)]"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Agregar contacto de emergencia
+                    </button>
+                  ) : (
+                    <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/5 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-[var(--foreground)]">Contacto de emergencia (opcional)</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowEditEmergencyContact(false)}
+                          className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nombre</label>
+                        <input
+                          type="text"
+                          name="emergencyContactName"
+                          value={editEmergencyName}
+                          onChange={(e) => setEditEmergencyName(e.target.value)}
+                          placeholder="Ej. María Pérez"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Teléfono</label>
+                        <input
+                          type="tel"
+                          name="emergencyContactPhone"
+                          value={editEmergencyPhone}
+                          onChange={(e) => setEditEmergencyPhone(e.target.value)}
+                          placeholder="+569 1234 5678"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Notas</label>
+                  <textarea
+                    name="notes"
+                    rows={2}
+                    defaultValue={guestToEdit.notes ?? ""}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div>
+                  {guestToEdit.isBlacklisted ? (
+                    <button
+                      type="button"
+                      onClick={() => setBlockModalOpen(true)}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-4 py-2.5 text-sm font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/20"
+                    >
+                      <Lock className="h-4 w-4" />
+                      Bloqueado — Ver motivo
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setBlockReasonInput(""); setBlockError(null); setBlockModalOpen(true); }}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:border-[var(--destructive)]/30 hover:text-[var(--destructive)]"
+                    >
+                      <Lock className="h-4 w-4" />
+                      Bloquear huésped
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setGuestToEdit(null)}
+                    className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                  >
+                    Guardar cambios
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal motivo de bloqueo / Bloquear huésped */}
+      {blockModalOpen && guestToEdit &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[70] flex min-h-screen items-center justify-center bg-black/50 p-4"
+            onClick={() => setBlockModalOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                  {guestToEdit.isBlacklisted ? "Motivo del bloqueo" : "Bloquear huésped"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setBlockModalOpen(false)}
+                  className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
+                  aria-label="Cerrar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              {guestToEdit.isBlacklisted ? (
+                <>
+                  <p className="mb-2 text-sm font-medium text-[var(--muted)]">Motivo registrado:</p>
+                  <p className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--muted)]/5 px-3 py-2.5 text-sm text-[var(--foreground)]">
+                    {guestToEdit.blockReason ?? "—"}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBlockModalOpen(false)}
+                      className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await setGuestUnblocked(guestToEdit.id);
+                        if (ok?.success) {
+                          setGuestToEdit((prev) => (prev ? { ...prev, isBlacklisted: false, blockReason: null } : null));
+                          setBlockModalOpen(false);
+                          router.refresh();
+                        } else if (ok?.error) setBlockError(ok.error);
+                      }}
+                      className="flex-1 rounded-lg bg-[var(--success)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                    >
+                      Desbloquear
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">¿Por qué se bloquea a este huésped? *</label>
+                  <textarea
+                    value={blockReasonInput}
+                    onChange={(e) => setBlockReasonInput(e.target.value)}
+                    rows={3}
+                    placeholder="Ej. Impago reiterado, conducta inapropiada..."
+                    className="mb-4 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                  {blockError && (
+                    <p className="mb-3 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">{blockError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBlockModalOpen(false)}
+                      className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await setGuestBlocked(guestToEdit.id, blockReasonInput);
+                        if (ok?.success) {
+                          setGuestToEdit((prev) => (prev ? { ...prev, isBlacklisted: true, blockReason: blockReasonInput } : null));
+                          setBlockModalOpen(false);
+                          router.refresh();
+                        } else if (ok?.error) setBlockError(ok.error);
+                      }}
+                      disabled={!blockReasonInput.trim()}
+                      className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                      Bloquear
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal Ver historial */}
+      {guestHistory &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-black/50 p-4"
+            onClick={() => setGuestHistory(null)}
+          >
+            <div
+              className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl max-h-[85vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Historial de reservas — {guestHistory.fullName}</h3>
+                <button
+                  type="button"
+                  onClick={() => setGuestHistory(null)}
+                  className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
+                  aria-label="Cerrar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              {guestHistory.emergencyContact && (
+                <div className="mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/5 px-3 py-2 text-sm">
+                  <span className="font-medium text-[var(--muted)]">Contacto de emergencia: </span>
+                  <span className="text-[var(--foreground)]">{guestHistory.emergencyContact}</span>
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {loadingHistory ? (
+                  <p className="py-8 text-center text-sm text-[var(--muted)]">Cargando historial...</p>
+                ) : historyReservations.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-[var(--muted)]">No hay reservas registradas.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {historyReservations.map((r) => (
+                      <li
+                        key={r.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 px-4 py-3 text-sm"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Calendar className="h-4 w-4 text-[var(--muted)]" />
+                          <span className="text-[var(--foreground)]">
+                            {new Date(r.checkIn).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}
+                            {" — "}
+                            {new Date(r.checkOut).toLocaleDateString("es-CL", { day: "numeric", month: "short", year: "numeric" })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">Hab. {r.roomNumber}</span>
+                          <span className="rounded-full bg-[var(--muted)]/20 px-2 py-0.5 text-xs text-[var(--muted)]">
+                            {STATUS_LABELS[r.status] ?? r.status}
+                          </span>
+                        </div>
+                        <div className="w-full text-[var(--muted)] sm:w-auto">
+                          {r.nights} {r.nights === 1 ? "noche" : "noches"} · {formatCLP(r.totalAmount)}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="mt-4 pt-3 border-t border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={() => setGuestHistory(null)}
+                  className="w-full rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
 }

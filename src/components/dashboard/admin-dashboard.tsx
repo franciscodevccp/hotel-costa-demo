@@ -9,11 +9,25 @@ import {
   Building2,
   CreditCard,
 } from "lucide-react";
-import Link from "next/link";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { WidgetCard } from "@/components/dashboard/widget-card";
 
-export function AdminDashboard() {
+type DashboardStats = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getDashboardStats>>;
+type PendingPreview = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getPendingPaymentsPreview>>;
+type LowStock = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getLowStockProducts>>;
+type RecentActivity = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getRecentActivity>>;
+
+export function AdminDashboard({
+  stats,
+  pagosPendientesPreview,
+  productosBajoStock,
+  recentActivity,
+}: {
+  stats: DashboardStats;
+  pagosPendientesPreview: PendingPreview;
+  productosBajoStock: LowStock;
+  recentActivity: RecentActivity;
+}) {
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", {
       style: "currency",
@@ -21,42 +35,6 @@ export function AdminDashboard() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
-
-  // Datos mock - métricas principales
-  const stats = {
-    revenue: 2450000,
-    revenueTrend: 12,
-    occupancy: 85,
-    occupancyTrend: 5,
-    reservations: 24,
-    guests: 42,
-    cobradoHoy: 360000,
-    pagosPendientes: 370000,
-    productosBajoStock: 4,
-  };
-
-  // Pagos pendientes (personas + empresas)
-  const pagosPendientesPreview = [
-    { type: "persona", name: "Ana Martínez", amount: 100000, room: "301" },
-    { type: "persona", name: "Patricia López", amount: 120000, room: "103" },
-    { type: "empresa", name: "Constructora Pacífico", amount: 450000 },
-  ];
-
-  // Productos con stock bajo
-  const productosBajoStock = [
-    { name: "Jabón de tocador", stock: 12, min: 20, unit: "unidad" },
-    { name: "Papel higiénico", stock: 8, min: 15, unit: "rollo" },
-    { name: "Toalla grande", stock: 25, min: 30, unit: "unidad" },
-    { name: "Café molido", stock: 3, min: 10, unit: "kg" },
-  ];
-
-  const recentActivity = [
-    { id: 1, action: "Nueva reserva", user: "María González", time: "Hace 5 min" },
-    { id: 2, action: "Check-in completado", user: "Juan Pérez", time: "Hace 15 min" },
-    { id: 3, action: "Pago recibido", user: "Ana Martínez", time: "Hace 1 hora" },
-    { id: 4, action: "Abono registrado", user: "Patricia López", time: "Hace 2 horas" },
-    { id: 5, action: "Boleta sincronizada", user: "Juan Riquelme", time: "Hace 3 horas" },
-  ];
 
   return (
     <div className="space-y-6">
@@ -73,7 +51,7 @@ export function AdminDashboard() {
           value={`${stats.occupancy}%`}
           icon={TrendingUp}
           trend={{ value: stats.occupancyTrend, isPositive: true }}
-          description="17 de 20 habitaciones"
+          description={`${stats.occupiedRooms} de ${stats.totalRooms} habitaciones`}
         />
         <StatCard
           title="Reservas Activas"
@@ -114,7 +92,7 @@ export function AdminDashboard() {
         />
         <StatCard
           title="Boletas Este Mes"
-          value={12}
+          value={stats.boletasEsteMes}
           icon={Package}
           description="Documentos registrados"
           href="/dashboard/invoices"
@@ -192,7 +170,7 @@ export function AdminDashboard() {
                       {p.name}
                     </p>
                     <p className="text-xs text-[var(--muted)]">
-                      Mín: {p.min} {p.unit}
+                      Mín: {p.minStock} {p.unit}
                     </p>
                   </div>
                 </div>

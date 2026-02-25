@@ -1,21 +1,14 @@
-import { redirect } from "next/navigation";
-import { getMockSessionServer } from "@/lib/mock-auth";
+import { requireAuth } from "@/lib/require-auth";
+import { getReportData } from "@/lib/queries/reports";
 import { AdminReportsView } from "@/components/reports/admin-reports-view";
 
 export default async function ReportsPage() {
-  const session = await getMockSessionServer();
-
-  if (!session) {
-    redirect("/login");
-  }
-
-  if (session.role !== "admin") {
-    redirect("/dashboard");
-  }
+  const session = await requireAuth(["ADMIN"]);
+  const data = await getReportData(session.user.establishmentId);
 
   return (
     <div className="p-6">
-      <AdminReportsView />
+      <AdminReportsView data={data} />
     </div>
   );
 }

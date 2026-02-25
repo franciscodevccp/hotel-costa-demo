@@ -1,73 +1,88 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-
-const DEMO_USERS = [
-  { email: "admin@hostaldemo.cl", label: "Admin" },
-  { email: "recepcionista@hostaldemo.cl", label: "Recepcionista" },
-] as const;
+import { signIn } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  async function handleSelectUser(user: (typeof DEMO_USERS)[number]) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     setError(null);
-    setLoading(user.email);
-
+    setLoading(true);
+    const form = e.currentTarget;
+    const email = (form.elements.namedItem("email") as HTMLInputElement).value.trim();
+    const password = (form.elements.namedItem("password") as HTMLInputElement).value;
+    if (!email || !password) {
+      setError("Ingresa email y contraseña");
+      setLoading(false);
+      return;
+    }
     try {
-      const res = await fetch("/api/auth/mock-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: user.email }),
+      const res = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Error al iniciar sesión");
-        setLoading(null);
+      if (res?.error) {
+        setError("Email o contraseña incorrectos");
+        setLoading(false);
         return;
       }
-
-      router.push("/dashboard");
+      router.push(callbackUrl);
       router.refresh();
-    } catch (err) {
+    } catch {
       setError("Error de conexión");
-      setLoading(null);
+      setLoading(false);
     }
   }
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-[var(--muted)]">
-        Elige un usuario para entrar (demo):
-      </p>
-      <ul className="space-y-2">
-        {DEMO_USERS.map((user) => (
-          <li key={user.email}>
-            <button
-              type="button"
-              onClick={() => handleSelectUser(user)}
-              disabled={loading !== null}
-              className="flex w-full items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-left transition hover:bg-[var(--accent)] hover:opacity-90 disabled:opacity-50"
-            >
-              <span className="font-medium text-[var(--foreground)]">
-                {user.label}
-              </span>
-              <span className="truncate text-xs text-[var(--muted)]">
-                {loading === user.email ? "Entrando…" : user.email}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label htmlFor="email" className="mb-1 block text-sm font-medium text-[var(--foreground)]">
+          Email
+        </label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
+          placeholder="admin@hoteldelacosta.cl"
+        />
+      </div>
+      <div>
+        <label htmlFor="password" className="mb-1 block text-sm font-medium text-[var(--foreground)]">
+          Contraseña
+        </label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          className="w-full rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
+        />
+      </div>
       {error && (
         <p className="text-sm text-[var(--destructive)]" role="alert">
           {error}
         </p>
       )}
-    </div>
+      <button
+        type="submit"
+        disabled={loading}
+        className="w-full rounded-md bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50"
+      >
+        {loading ? "Entrando…" : "Entrar"}
+      </button>
+    </form>
   );
 }

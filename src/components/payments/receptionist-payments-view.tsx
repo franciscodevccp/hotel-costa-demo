@@ -11,26 +11,10 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
+import type { PaymentRow } from "./admin-payments-view";
 
-type PaymentMethod =
-  | "cash"
-  | "debit"
-  | "credit"
-  | "transfer"
-  | "other";
+type PaymentMethod = "cash" | "debit" | "credit" | "transfer" | "other";
 type PaymentStatus = "completed" | "partial" | "pending" | "refunded";
-
-interface PaymentRow {
-  id: string;
-  paid_at: string;
-  guest_name: string;
-  room_number: string;
-  amount: number;
-  total_amount?: number;
-  method: PaymentMethod;
-  status: PaymentStatus;
-  registered_by: string;
-}
 
 const METHOD_COLORS: Record<PaymentMethod, string> = {
   cash: "var(--success)",
@@ -62,67 +46,12 @@ const STATUS_STYLES: Record<PaymentStatus, string> = {
   refunded: "bg-[var(--muted)]/10 text-[var(--muted)] border-[var(--muted)]/20",
 };
 
-export function ReceptionistPaymentsView() {
+export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] }) {
   const [methodFilter, setMethodFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [search, setSearch] = useState("");
-
-  const payments: PaymentRow[] = [
-    {
-      id: "1",
-      paid_at: "2026-02-12T10:30:00",
-      guest_name: "María González",
-      room_number: "102",
-      amount: 105000,
-      method: "cash",
-      status: "completed",
-      registered_by: "María Soto",
-    },
-    {
-      id: "2",
-      paid_at: "2026-02-12T09:15:00",
-      guest_name: "Carlos Ruiz",
-      room_number: "204",
-      amount: 255000,
-      method: "transfer",
-      status: "completed",
-      registered_by: "Juan Riquelme",
-    },
-    {
-      id: "3",
-      paid_at: "2026-02-11T16:00:00",
-      guest_name: "Ana Martínez",
-      room_number: "301",
-      amount: 50000,
-      total_amount: 150000,
-      method: "debit",
-      status: "partial",
-      registered_by: "María Soto",
-    },
-    {
-      id: "4",
-      paid_at: "2026-02-10T11:00:00",
-      guest_name: "Roberto Fernández",
-      room_number: "201",
-      amount: 80000,
-      method: "credit",
-      status: "completed",
-      registered_by: "Juan Riquelme",
-    },
-    {
-      id: "5",
-      paid_at: "2026-02-12T14:00:00",
-      guest_name: "Patricia López",
-      room_number: "103",
-      amount: 60000,
-      total_amount: 180000,
-      method: "cash",
-      status: "partial",
-      registered_by: "María Soto",
-    },
-  ];
 
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", {
@@ -140,7 +69,7 @@ export function ReceptionistPaymentsView() {
       minute: "2-digit",
     });
 
-  const today = "2026-02-12";
+  const today = new Date().toISOString().slice(0, 10);
   const paymentsToday = payments.filter(
     (p) => p.paid_at.startsWith(today) && (p.status === "completed" || p.status === "partial")
   );

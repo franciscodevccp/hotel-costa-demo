@@ -10,124 +10,19 @@ import {
   Clock,
   AlertCircle,
 } from "lucide-react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 
-interface PendingCompany {
-  id: string;
-  name: string;
-  rut: string;
-  amount: number;
-  total_amount: number;
-  payment_terms_days: number;
-  due_date: string;
-  business_days_remaining: number;
-  room_or_service: string;
-  contact_email: string;
-}
+type PendingCompany = Awaited<ReturnType<typeof import("@/lib/queries/pending-payments").getPendingCompanies>>[number];
+type PendingPerson = Awaited<ReturnType<typeof import("@/lib/queries/pending-payments").getPendingPersons>>[number];
 
-interface PendingPerson {
-  id: string;
-  name: string;
-  rut: string | null;
-  room_number: string;
-  amount: number;
-  total_amount: number;
-  amount_paid: number;
-  amount_pending: number;
-  contact_phone: string | null;
-  check_out: string;
-}
-
-const MOCK_COMPANIES: PendingCompany[] = [
-  {
-    id: "1",
-    name: "Constructora Pacífico SpA",
-    rut: "76.123.456-7",
-    amount: 450000,
-    total_amount: 450000,
-    payment_terms_days: 30,
-    due_date: "2026-03-15",
-    business_days_remaining: 22,
-    room_or_service: "Hab. 101-102 (convenio corporativo)",
-    contact_email: "contabilidad@constructora.cl",
-  },
-  {
-    id: "2",
-    name: "Turismo Costa Verde Ltda",
-    rut: "78.456.789-2",
-    amount: 680000,
-    total_amount: 680000,
-    payment_terms_days: 30,
-    due_date: "2026-03-20",
-    business_days_remaining: 27,
-    room_or_service: "4 habitaciones - evento corporativo",
-    contact_email: "finanzas@turismocosta.cl",
-  },
-  {
-    id: "3",
-    name: "Minera Sur S.A.",
-    rut: "77.789.123-4",
-    amount: 1200000,
-    total_amount: 1200000,
-    payment_terms_days: 30,
-    due_date: "2026-03-05",
-    business_days_remaining: 12,
-    room_or_service: "Suite 301 - 15 noches",
-    contact_email: "proveedores@minerasur.cl",
-  },
-];
-
-const MOCK_PERSONS: PendingPerson[] = [
-  {
-    id: "1",
-    name: "Ana Martínez",
-    rut: "12.345.678-9",
-    room_number: "301",
-    amount: 150000,
-    total_amount: 150000,
-    amount_paid: 50000,
-    amount_pending: 100000,
-    contact_phone: "+56912345678",
-    check_out: "2026-02-14",
-  },
-  {
-    id: "2",
-    name: "Patricia López",
-    rut: "18.234.567-8",
-    room_number: "103",
-    amount: 180000,
-    total_amount: 180000,
-    amount_paid: 60000,
-    amount_pending: 120000,
-    contact_phone: "+56987654321",
-    check_out: "2026-02-16",
-  },
-  {
-    id: "3",
-    name: "Diego Silva",
-    rut: "19.567.890-1",
-    room_number: "205",
-    amount: 250000,
-    total_amount: 250000,
-    amount_paid: 100000,
-    amount_pending: 150000,
-    contact_phone: null,
-    check_out: "2026-02-18",
-  },
-  {
-    id: "4",
-    name: "Roberto Fernández",
-    rut: "15.678.901-2",
-    room_number: "201",
-    amount: 80000,
-    total_amount: 80000,
-    amount_paid: 0,
-    amount_pending: 80000,
-    contact_phone: "+56976543210",
-    check_out: "2026-02-15",
-  },
-];
-
-export function PendingPaymentsView() {
+export function PendingPaymentsView({
+  companies,
+  persons,
+}: {
+  companies: PendingCompany[];
+  persons: PendingPerson[];
+}) {
   const [companySearch, setCompanySearch] = useState("");
   const [personSearch, setPersonSearch] = useState("");
 
@@ -138,34 +33,26 @@ export function PendingPaymentsView() {
       minimumFractionDigits: 0,
     }).format(amount);
 
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString("es-CL", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+  const formatDate = (date: Date) =>
+    format(date, "d MMM yyyy", { locale: es });
 
-  const filteredCompanies = MOCK_COMPANIES.filter(
+  const filteredCompanies = companies.filter(
     (c) =>
       !companySearch ||
-      c.name.toLowerCase().includes(companySearch.toLowerCase()) ||
-      c.rut.includes(companySearch) ||
-      c.contact_email.toLowerCase().includes(companySearch.toLowerCase())
+      c.companyName.toLowerCase().includes(companySearch.toLowerCase()) ||
+      (c.companyRut?.includes(companySearch)) ||
+      (c.companyEmail?.toLowerCase().includes(companySearch.toLowerCase()))
   );
 
-  const filteredPersons = MOCK_PERSONS.filter(
+  const filteredPersons = persons.filter(
     (p) =>
       !personSearch ||
-      p.name.toLowerCase().includes(personSearch.toLowerCase()) ||
-      (p.rut && p.rut.includes(personSearch)) ||
-      p.room_number.includes(personSearch)
+      p.guestName.toLowerCase().includes(personSearch.toLowerCase()) ||
+      p.roomNumber.includes(personSearch)
   );
 
-  const totalCompaniesPending = filteredCompanies.reduce((s, c) => s + c.amount, 0);
-  const totalPersonsPending = filteredPersons.reduce(
-    (s, p) => s + p.amount_pending,
-    0
-  );
+  const totalCompaniesPending = filteredCompanies.reduce((s, c) => s + c.pendingAmount, 0);
+  const totalPersonsPending = filteredPersons.reduce((s, p) => s + p.pendingAmount, 0);
 
   return (
     <div className="space-y-8">
@@ -255,14 +142,14 @@ export function PendingPaymentsView() {
                   </div>
                   <div>
                     <p className="font-semibold text-[var(--foreground)]">
-                      {company.name}
+                      {company.companyName}
                     </p>
-                    <p className="text-xs text-[var(--muted)]">RUT: {company.rut}</p>
+                    <p className="text-xs text-[var(--muted)]">RUT: {company.companyRut ?? "—"}</p>
                     <p className="mt-1 text-sm text-[var(--muted)]">
-                      {company.room_or_service}
+                      Hab. {company.roomNumber} — {company.guestName}
                     </p>
                     <p className="text-xs text-[var(--muted)]">
-                      {company.contact_email}
+                      {company.companyEmail ?? "—"}
                     </p>
                   </div>
                 </div>
@@ -270,7 +157,7 @@ export function PendingPaymentsView() {
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-4 w-4 text-[var(--muted)]" />
                     <span className="text-lg font-bold text-[var(--foreground)]">
-                      {formatCLP(company.amount)}
+                      {formatCLP(company.pendingAmount)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -367,32 +254,32 @@ export function PendingPaymentsView() {
                     <td className="px-4 py-3">
                       <div>
                         <p className="font-medium text-[var(--foreground)]">
-                          {person.name}
+                          {person.guestName}
                         </p>
-                        {person.rut && (
+                        {person.guestPhone && (
                           <p className="text-xs text-[var(--muted)]">
-                            RUT: {person.rut}
+                            {person.guestPhone}
                           </p>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-[var(--foreground)]">
-                      Hab. {person.room_number}
+                      Hab. {person.roomNumber}
                     </td>
                     <td className="px-4 py-3 text-right text-[var(--muted)]">
-                      {formatCLP(person.total_amount)}
+                      {formatCLP(person.totalAmount)}
                     </td>
                     <td className="px-4 py-3 text-right text-[var(--success)]">
-                      {formatCLP(person.amount_paid)}
+                      {formatCLP(person.paidAmount)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warning)]/10 px-2.5 py-0.5 font-semibold text-[var(--warning)]">
                         <AlertCircle className="h-3.5 w-3.5" />
-                        {formatCLP(person.amount_pending)}
+                        {formatCLP(person.pendingAmount)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
-                      {formatDate(person.check_out)}
+                      {formatDate(person.checkOut)}
                     </td>
                   </tr>
                 ))

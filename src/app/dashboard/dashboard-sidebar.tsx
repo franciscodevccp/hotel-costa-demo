@@ -57,8 +57,8 @@ export function DashboardSidebar({
   const collapsed = forceExpanded ? false : isCollapsed;
 
   async function handleSignOut() {
-    await fetch("/api/auth/mock-logout", { method: "POST" });
-    router.push("/login");
+    const { signOut } = await import("next-auth/react");
+    await signOut({ callbackUrl: "/login" });
     router.refresh();
   }
 

@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState } from "react";
+import { createPortal } from "react-dom";
 import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
-import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, isWithinInterval, parseISO, isSameDay, addDays } from "date-fns";
+import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, parseISO, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
+import { createReservation, updateReservationStatus, deleteReservation, type CreateReservationState } from "@/app/dashboard/reservations/actions";
+import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 
-interface Reservation {
+export interface ReservationDisplay {
     id: string;
     guest_name: string;
     guest_email: string;
@@ -17,12 +23,12 @@ interface Reservation {
     check_out: string;
     status: "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled";
     total_price: number;
+    paid_amount?: number;
+    pending_amount?: number;
     nights: number;
     guests: number;
     special_requests?: string;
 }
-
-const ROOMS = ["101", "102", "103", "201", "202", "203", "204", "301"];
 
 const RESERVATION_STYLES = [
     "bg-emerald-500 text-white shadow-sm border border-emerald-600/20",
@@ -30,56 +36,129 @@ const RESERVATION_STYLES = [
     "bg-violet-500 text-white shadow-sm border border-violet-600/20",
 ];
 
-export function AdminReservationsView() {
+type RoomOption = { id: string; roomNumber: string; pricePerNight: number };
+type GuestOption = { id: string; fullName: string; email: string };
+
+/** Formatea entrada como RUT chileno: 12.345.678-9. Máximo 8 dígitos + 1 dígito verificador. */
+function formatChileanRut(value: string): string {
+  const raw = value.replace(/[^0-9kK]/g, "").toUpperCase();
+  if (!raw) return "";
+  let bodyDigits = "";
+  let dv = "";
+  for (const c of raw) {
+    if (/\d/.test(c) && bodyDigits.length < 8) {
+      bodyDigits += c;
+    } else if (bodyDigits.length === 8 && /[0-9kK]/.test(c)) {
+      dv = c;
+      break;
+    }
+  }
+  const bodyFormatted = bodyDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return dv ? `${bodyFormatted}-${dv}` : bodyFormatted;
+}
+
+const initialReservationState: CreateReservationState = {};
+const initialGuestState: CreateGuestState = {};
+
+export function AdminReservationsView({
+  reservations,
+  roomNumbers,
+  rooms,
+  guests,
+}: {
+  reservations: ReservationDisplay[];
+  roomNumbers: string[];
+  rooms: RoomOption[];
+  guests: GuestOption[];
+}) {
+    const router = useRouter();
     const [statusFilter, setStatusFilter] = useState("");
     const [activeTab, setActiveTab] = useState<"resumen" | "calendario">("resumen");
-    const [calendarDate, setCalendarDate] = useState(new Date(2026, 1, 1));
-    const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
-    // Datos de ejemplo
-    const reservations: Reservation[] = [
-        {
-            id: "1",
-            guest_name: "María González",
-            guest_email: "maria@example.com",
-            guest_phone: "+56912345678",
-            room_number: "102",
-            room_type: "Double",
-            check_in: "2026-02-12",
-            check_out: "2026-02-15",
-            status: "confirmed",
-            total_price: 150000,
-            nights: 3,
-            guests: 2,
-        },
-        {
-            id: "2",
-            guest_name: "Carlos Ruiz",
-            guest_email: "carlos@example.com",
-            guest_phone: "+56923456789",
-            room_number: "204",
-            room_type: "Suite",
-            check_in: "2026-02-13",
-            check_out: "2026-02-16",
-            status: "pending",
-            total_price: 255000,
-            nights: 3,
-            guests: 2,
-        },
-        {
-            id: "3",
-            guest_name: "Ana Martínez",
-            guest_email: "ana@example.com",
-            guest_phone: "+56934567890",
-            room_number: "301",
-            room_type: "Single",
-            check_in: "2026-02-10",
-            check_out: "2026-02-12",
-            status: "checked_in",
-            total_price: 70000,
-            nights: 2,
-            guests: 1,
-        },
-    ];
+    const [calendarDate, setCalendarDate] = useState(new Date());
+    const [selectedReservation, setSelectedReservation] = useState<ReservationDisplay | null>(null);
+    const [newReservationOpen, setNewReservationOpen] = useState(false);
+    const [reservationToDelete, setReservationToDelete] = useState<ReservationDisplay | null>(null);
+    const [newGuestId, setNewGuestId] = useState("");
+    const [newRoomId, setNewRoomId] = useState("");
+    const [newCheckIn, setNewCheckIn] = useState("");
+    const [newCheckOut, setNewCheckOut] = useState("");
+    const [newNumGuests, setNewNumGuests] = useState(1);
+    const [newTotalAmount, setNewTotalAmount] = useState(0);
+    const [newDownPayment, setNewDownPayment] = useState(0);
+    const [newDownPaymentMethod, setNewDownPaymentMethod] = useState<"CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER">("CASH");
+    const [newNotes, setNewNotes] = useState("");
+    const [reservationState, reservationFormAction] = useActionState(createReservation, initialReservationState);
+    const [localGuests, setLocalGuests] = useState<GuestOption[]>(guests);
+    const [newGuestOpen, setNewGuestOpen] = useState(false);
+    const [newGuestRut, setNewGuestRut] = useState("");
+    const [newGuestPhone, setNewGuestPhone] = useState("+569");
+    const [showEmergencyContact, setShowEmergencyContact] = useState(false);
+    const [emergencyContactName, setEmergencyContactName] = useState("");
+    const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
+    const [guestState, guestFormAction] = useActionState(createGuest, initialGuestState);
+
+    useEffect(() => {
+      setLocalGuests(guests);
+    }, [guests]);
+
+    useEffect(() => {
+      const g = guestState?.guest;
+      if (g) {
+        setLocalGuests((prev) =>
+          prev.some((x) => x.id === g.id) ? prev : [...prev, g]
+        );
+        setNewGuestId(g.id);
+        setNewGuestOpen(false);
+        setNewGuestRut("");
+        setNewGuestPhone("+569");
+        setShowEmergencyContact(false);
+        setEmergencyContactName("");
+        setEmergencyContactPhone("");
+      }
+    }, [guestState?.guest]);
+
+    useEffect(() => {
+      if (newGuestOpen) {
+        setNewGuestRut("");
+        setNewGuestPhone("+569");
+        setShowEmergencyContact(false);
+        setEmergencyContactName("");
+        setEmergencyContactPhone("");
+      }
+    }, [newGuestOpen]);
+
+    const ROOMS = roomNumbers.length > 0 ? roomNumbers : Array.from(new Set(reservations.map((r) => r.room_number))).sort();
+    const selectedRoom = rooms.find((r) => r.id === newRoomId);
+    const nights = newCheckIn && newCheckOut ? Math.max(0, differenceInDays(new Date(newCheckOut), new Date(newCheckIn))) : 0;
+    const calculatedTotal = selectedRoom ? selectedRoom.pricePerNight * nights : 0;
+
+    useEffect(() => {
+      if (reservationState?.success) {
+        setNewReservationOpen(false);
+        router.refresh();
+      }
+    }, [reservationState?.success, router]);
+
+    useEffect(() => {
+      if (newReservationOpen) {
+        setNewGuestId("");
+        setNewRoomId("");
+        setNewCheckIn("");
+        setNewCheckOut("");
+        setNewNumGuests(1);
+        setNewTotalAmount(0);
+        setNewDownPayment(0);
+        setNewDownPaymentMethod("CASH");
+        setNewNotes("");
+      }
+    }, [newReservationOpen]);
+
+    useEffect(() => {
+      setNewTotalAmount(calculatedTotal);
+    }, [calculatedTotal]);
+    const filteredReservations = statusFilter
+        ? reservations.filter((r) => r.status === statusFilter)
+        : reservations;
 
     const statusColors = {
         pending: "bg-[var(--warning)]/10 text-[var(--warning)] border-[var(--warning)]/20",
@@ -160,11 +239,358 @@ export function AdminReservationsView() {
                         {activeTab === "resumen" ? "Administra todas las reservas del establecimiento" : "Calendario de disponibilidad habitación por habitación y valores por noche"}
                     </p>
                 </div>
-                <button className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto">
+                <button
+                    type="button"
+                    onClick={() => setNewReservationOpen(true)}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto"
+                  >
                     <Plus className="h-4 w-4" />
                     Nueva Reserva
-                </button>
+                  </button>
             </div>
+
+            {/* Modal Nueva Reserva */}
+            {newReservationOpen &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-50 min-h-screen flex items-center justify-center overflow-y-auto bg-black/50 p-4 py-8"
+                  style={{ minHeight: "100dvh" }}
+                >
+                  <div
+                    className="my-auto w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                  >
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="text-lg font-semibold text-[var(--foreground)]">Nueva reserva</h3>
+                      <button
+                        type="button"
+                        onClick={() => setNewReservationOpen(false)}
+                        className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
+                        aria-label="Cerrar"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <form action={reservationFormAction} className="space-y-4">
+                      {reservationState?.error && (
+                        <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                          {reservationState.error}
+                        </p>
+                      )}
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Huésped</label>
+                        <div className="flex gap-2">
+                          <select
+                            name="guestId"
+                            required
+                            value={newGuestId}
+                            onChange={(e) => setNewGuestId(e.target.value)}
+                            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                          >
+                            <option value="">Seleccionar huésped</option>
+                            {localGuests.map((g) => (
+                              <option key={g.id} value={g.id}>
+                                {g.fullName} {g.email ? `(${g.email})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setNewGuestOpen(true)}
+                            className="shrink-0 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-3 py-2 text-sm font-medium text-[var(--primary)] hover:bg-[var(--primary)]/20"
+                          >
+                            + Nuevo
+                          </button>
+                        </div>
+                        {localGuests.length === 0 && (
+                          <p className="mt-1.5 text-xs text-[var(--muted)]">
+                            No hay huéspedes. Haz clic en &quot;+ Nuevo&quot; para crear uno.
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Habitación</label>
+                        <select
+                          name="roomId"
+                          required
+                          value={newRoomId}
+                          onChange={(e) => setNewRoomId(e.target.value)}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        >
+                          <option value="">Seleccionar habitación</option>
+                          {rooms.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              Hab. {r.roomNumber} – ${r.pricePerNight.toLocaleString("es-CL")}/noche
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <input type="hidden" name="checkIn" value={newCheckIn} />
+                      <input type="hidden" name="checkOut" value={newCheckOut} />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Check-in</label>
+                          <DatePickerInput
+                            value={newCheckIn}
+                            onChange={setNewCheckIn}
+                            placeholder="dd/mm/aaaa"
+                            minDate={format(startOfDay(new Date()), "yyyy-MM-dd")}
+                            aria-label="Fecha de check-in"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Check-out</label>
+                          <DatePickerInput
+                            value={newCheckOut}
+                            onChange={setNewCheckOut}
+                            placeholder="dd/mm/aaaa"
+                            minDate={newCheckIn || format(startOfDay(new Date()), "yyyy-MM-dd")}
+                            aria-label="Fecha de check-out"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nº huéspedes</label>
+                        <select
+                          name="numGuests"
+                          value={newNumGuests}
+                          onChange={(e) => setNewNumGuests(parseInt(e.target.value, 10))}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                            <option key={n} value={n}>
+                              {n} {n === 1 ? "persona" : "personas"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Total (CLP)</label>
+                        <input
+                          type="text"
+                          name="totalAmount"
+                          inputMode="numeric"
+                          value={newTotalAmount ? newTotalAmount.toLocaleString("es-CL") : ""}
+                          onChange={(e) => setNewTotalAmount(parseInt(e.target.value.replace(/\D/g, ""), 10) || 0)}
+                          placeholder="Se calcula por habitación y noches"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Abonado (CLP)</label>
+                        <input
+                          type="text"
+                          name="downPayment"
+                          inputMode="numeric"
+                          value={newDownPayment ? newDownPayment.toLocaleString("es-CL") : ""}
+                          onChange={(e) => setNewDownPayment(Math.max(0, parseInt(e.target.value.replace(/\D/g, ""), 10) || 0))}
+                          placeholder="Monto que abona el cliente ahora"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                        <div className="mt-2">
+                          <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Método de pago</label>
+                          <select
+                            name="downPaymentMethod"
+                            value={newDownPaymentMethod}
+                            onChange={(e) => setNewDownPaymentMethod(e.target.value as "CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER")}
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                          >
+                            <option value="CASH">Efectivo</option>
+                            <option value="TRANSFER">Transferencia</option>
+                            <option value="DEBIT">Débito</option>
+                            <option value="CREDIT">Crédito</option>
+                            <option value="OTHER">Otro</option>
+                          </select>
+                        </div>
+                        {newTotalAmount > 0 && (
+                          <p className="mt-1.5 text-xs text-[var(--muted)]">
+                            Saldo pendiente: <span className="font-medium text-[var(--foreground)]">
+                              ${Math.max(0, newTotalAmount - newDownPayment).toLocaleString("es-CL")}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Notas (opcional)</label>
+                        <textarea
+                          name="notes"
+                          value={newNotes}
+                          onChange={(e) => setNewNotes(e.target.value)}
+                          rows={2}
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewReservationOpen(false)}
+                          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          Crear reserva
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body
+              )}
+
+            {/* Modal Nuevo huésped */}
+            {newGuestOpen &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4"
+                  style={{ minHeight: "100dvh" }}
+                >
+                  <div
+                    className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                  >
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-[var(--foreground)]">Nuevo huésped</h3>
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">
+                          Se guardará en Gestión de Huéspedes y podrá usarse en futuras reservas.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setNewGuestOpen(false)}
+                        className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
+                        aria-label="Cerrar"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <form action={guestFormAction} className="space-y-4">
+                      {guestState?.error && (
+                        <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                          {guestState.error}
+                        </p>
+                      )}
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nombre completo *</label>
+                        <input
+                          type="text"
+                          name="fullName"
+                          required
+                          placeholder="Ej. Juan Pérez"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">RUT *</label>
+                        <input
+                          type="text"
+                          name="rut"
+                          required
+                          inputMode="numeric"
+                          autoComplete="off"
+                          value={newGuestRut}
+                          onChange={(e) => setNewGuestRut(formatChileanRut(e.target.value))}
+                          placeholder="12.345.678-9"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Email *</label>
+                        <input
+                          type="email"
+                          name="email"
+                          required
+                          placeholder="correo@ejemplo.com"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Teléfono *</label>
+                        <input
+                          type="tel"
+                          name="phone"
+                          required
+                          value={newGuestPhone}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v.length <= 12) setNewGuestPhone(v);
+                          }}
+                          maxLength={12}
+                          placeholder="+569 1234 5678"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        />
+                      </div>
+                      <div>
+                        {!showEmergencyContact ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowEmergencyContact(true)}
+                            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--muted)]/10 px-4 py-3 text-sm font-medium text-[var(--muted)] transition-colors hover:border-[var(--primary)]/50 hover:bg-[var(--primary)]/5 hover:text-[var(--primary)]"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Agregar contacto de emergencia
+                          </button>
+                        ) : (
+                          <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--muted)]/5 p-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium text-[var(--foreground)]">Contacto de emergencia (opcional)</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowEmergencyContact(false)}
+                                className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nombre</label>
+                              <input
+                                type="text"
+                                name="emergencyContactName"
+                                value={emergencyContactName}
+                                onChange={(e) => setEmergencyContactName(e.target.value)}
+                                placeholder="Ej. María Pérez"
+                                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Teléfono</label>
+                              <input
+                                type="tel"
+                                name="emergencyContactPhone"
+                                value={emergencyContactPhone}
+                                onChange={(e) => setEmergencyContactPhone(e.target.value)}
+                                placeholder="+569 1234 5678"
+                                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewGuestOpen(false)}
+                          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          Crear huésped
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>,
+                document.body
+              )}
 
             {/* Tabs Resumen / Calendario */}
             <div className="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-1">
@@ -298,11 +724,19 @@ export function AdminReservationsView() {
 
             {/* Lista de reservas */}
             <div className="space-y-3">
-                {reservations.map((reservation) => (
+                {filteredReservations.map((reservation) => (
                     <div
                         key={reservation.id}
-                        className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm transition-all hover:shadow-md"
+                        className="relative rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 pr-16 shadow-sm transition-all hover:shadow-md"
                     >
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setReservationToDelete(reservation); }}
+                            className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] shrink-0"
+                            aria-label="Eliminar reserva"
+                        >
+                            <X className="h-5 w-5" />
+                        </button>
                         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                             <div className="flex gap-4">
                                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10 shadow-sm">
@@ -357,11 +791,40 @@ export function AdminReservationsView() {
                                     <p className="text-lg font-bold text-[var(--foreground)]">{formatCLP(reservation.total_price)}</p>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3 md:flex md:justify-end">
-                                    <button className="flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]">
-                                        Cancelar
-                                    </button>
-                                    <button className="flex items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[var(--primary)]/90">
+                                <div className="grid grid-cols-2 gap-3 md:flex md:justify-end md:gap-3">
+                                    {reservation.status === "pending" && (
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const ok = await updateReservationStatus(reservation.id, "CONFIRMED");
+                                                if (ok?.success) router.refresh();
+                                            }}
+                                            className="flex items-center justify-center rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-3 py-2 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20"
+                                        >
+                                            Confirmar
+                                        </button>
+                                    )}
+                                    {reservation.status !== "cancelled" && (
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                if (!confirm("¿Cancelar esta reserva? Esta acción no se puede deshacer.")) return;
+                                                const ok = await updateReservationStatus(reservation.id, "CANCELLED");
+                                                if (ok?.success) {
+                                                    setSelectedReservation(null);
+                                                    router.refresh();
+                                                } else if (ok?.error) alert(ok.error);
+                                            }}
+                                            className="flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] hover:border-[var(--destructive)]/30"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedReservation(reservation)}
+                                        className="flex items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[var(--primary)]/90"
+                                    >
                                         Ver detalles
                                     </button>
                                 </div>
@@ -372,6 +835,55 @@ export function AdminReservationsView() {
             </div>
                 </>
             )}
+
+            {/* Modal confirmar eliminar reserva */}
+            {reservationToDelete &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center bg-black/50 p-4"
+                  onClick={() => setReservationToDelete(null)}
+                >
+                  <div
+                    className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">Eliminar reserva</h3>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      Si elimina la reserva, se eliminará permanentemente y no podrá recuperarse. Los pagos asociados también se eliminarán.
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-[var(--foreground)]">
+                      Reserva de <strong>{reservationToDelete.guest_name}</strong> · {formatCLP(reservationToDelete.total_price)}
+                    </p>
+                    <div className="mt-6 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setReservationToDelete(null)}
+                        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                      >
+                        No, cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await deleteReservation(reservationToDelete.id);
+                          if (ok?.success) {
+                            setReservationToDelete(null);
+                            setSelectedReservation((prev) => (prev?.id === reservationToDelete.id ? null : prev));
+                            router.refresh();
+                          } else if (ok?.error) {
+                            alert(ok.error);
+                          }
+                        }}
+                        className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                      >
+                        Sí, eliminar
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
 
             {/* Modal detalle de reserva */}
             {selectedReservation && (
@@ -451,24 +963,65 @@ export function AdminReservationsView() {
                                 </div>
                             )}
 
-                            <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
-                                <span className="text-sm text-[var(--muted)]">Total</span>
-                                <p className="text-xl font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
+                            <div className="space-y-1.5 pt-2 border-t border-[var(--border)]">
+                                {selectedReservation.paid_amount != null && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-[var(--muted)]">Abonado</span>
+                                        <p className="text-sm font-medium text-[var(--foreground)]">{formatCLP(selectedReservation.paid_amount)}</p>
+                                    </div>
+                                )}
+                                {selectedReservation.pending_amount != null && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-[var(--muted)]">Saldo pendiente</span>
+                                        <p className={`text-sm font-medium ${selectedReservation.pending_amount > 0 ? "text-[var(--warning)]" : "text-[var(--foreground)]"}`}>
+                                            {formatCLP(selectedReservation.pending_amount)}
+                                        </p>
+                                    </div>
+                                )}
+                                <div className="flex items-center justify-between pt-1">
+                                    <span className="text-sm text-[var(--muted)]">Total</span>
+                                    <p className="text-xl font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
+                                </div>
                             </div>
 
-                            <div className="flex gap-3 pt-2">
+                            <div className="flex flex-wrap gap-3 pt-2">
+                                {selectedReservation.status === "pending" && (
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            const ok = await updateReservationStatus(selectedReservation.id, "CONFIRMED");
+                                            if (ok?.success) {
+                                                setSelectedReservation(null);
+                                                router.refresh();
+                                            } else if (ok?.error) alert(ok.error);
+                                        }}
+                                        className="flex-1 min-w-[120px] rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-4 py-2.5 text-sm font-medium text-[var(--primary)] hover:bg-[var(--primary)]/20"
+                                    >
+                                        Confirmar reserva
+                                    </button>
+                                )}
+                                {selectedReservation.status !== "cancelled" && (
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (!confirm("¿Cancelar esta reserva? Esta acción no se puede deshacer.")) return;
+                                            const ok = await updateReservationStatus(selectedReservation.id, "CANCELLED");
+                                            if (ok?.success) {
+                                                setSelectedReservation(null);
+                                                router.refresh();
+                                            } else if (ok?.error) alert(ok.error);
+                                        }}
+                                        className="flex-1 min-w-[120px] rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-4 py-2.5 text-sm font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/20"
+                                    >
+                                        Cancelar reserva
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     onClick={() => setSelectedReservation(null)}
-                                    className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
+                                    className="flex-1 min-w-[100px] rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
                                 >
                                     Cerrar
-                                </button>
-                                <button
-                                    type="button"
-                                    className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-opacity"
-                                >
-                                    Ver detalles completos
                                 </button>
                             </div>
                         </div>

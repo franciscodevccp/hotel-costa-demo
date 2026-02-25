@@ -1,0 +1,319 @@
+// Hotel de la Costa - Sistema de gestión
+// Schema según instructivo v1.0
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Establishment ─────────────────────────────────────────────────────────
+model Establishment {
+  id         String   @id @default(cuid())
+  name       String   // "Hotel de la Costa"
+  address    String?
+  phone      String?
+  email      String?
+  logoUrl    String?
+  totalRooms Int      @default(22)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  users        User[]
+  rooms        Room[]
+  guests       Guest[]
+  reservations Reservation[]
+  payments     Payment[]
+  products     InventoryProduct[]
+  suppliers    Supplier[]
+  invoices     Invoice[]
+  activityLogs ActivityLog[]
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────
+model User {
+  id              String    @id @default(cuid())
+  establishmentId String
+  fullName        String
+  email           String    @unique
+  passwordHash    String    // bcrypt 12 rounds
+  role            UserRole  @default(RECEPTIONIST)
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  establishment Establishment  @relation(fields: [establishmentId], references: [id])
+  payments      Payment[]      @relation("RegisteredBy")
+  activityLogs  ActivityLog[]
+
+  @@index([establishmentId])
+}
+
+enum UserRole {
+  ADMIN
+  RECEPTIONIST
+}
+
+// ─── Room ──────────────────────────────────────────────────────────────────
+model Room {
+  id              String     @id @default(cuid())
+  establishmentId String
+  roomNumber      String
+  type            RoomType
+  pricePerNight   Int        // CLP sin decimales
+  status          RoomStatus @default(AVAILABLE)
+  floor           Int
+  hasPrivateBath  Boolean    @default(true)
+  maxGuests       Int        @default(2)
+  description     String?
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  reservations  Reservation[]
+
+  @@unique([establishmentId, roomNumber])
+  @@index([establishmentId, status])
+}
+
+enum RoomType {
+  SINGLE
+  DOUBLE
+  TRIPLE
+  QUADRUPLE
+  PROMOTIONAL
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+}
+
+// ─── Guest ────────────────────────────────────────────────────────────────
+model Guest {
+  id                String   @id @default(cuid())
+  establishmentId   String
+  fullName          String
+  rut               String?
+  email             String?
+  phone             String?
+  emergencyContact  String?  // contacto de emergencia opcional (nombre y/o teléfono)
+  nationality       String?  @default("Chile")
+  notes             String?
+  isBlacklisted     Boolean  @default(false)
+  blockReason       String?  // motivo del bloqueo (por qué se bloqueó al huésped)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  reservations  Reservation[]
+
+  @@index([establishmentId])
+  @@index([fullName])
+}
+
+// ─── Reservation ───────────────────────────────────────────────────────────
+model Reservation {
+  id              String            @id @default(cuid())
+  establishmentId String
+  roomId          String
+  guestId         String
+  checkIn         DateTime
+  checkOut        DateTime
+  numGuests       Int               @default(1)
+  status          ReservationStatus @default(PENDING)
+  totalAmount     Int               // total en CLP
+  source          ReservationSource @default(MANUAL)
+  motopressId     String?           @unique
+  companyName     String?
+  companyRut      String?
+  companyEmail    String?
+  paymentTermDays Int?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  room          Room          @relation(fields: [roomId], references: [id])
+  guest         Guest         @relation(fields: [guestId], references: [id])
+  payments      Payment[]
+
+  @@index([establishmentId, status])
+  @@index([roomId, checkIn, checkOut])
+  @@index([guestId])
+  @@index([checkIn])
+  @@index([checkOut])
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum ReservationSource {
+  MANUAL
+  MOTOPRESS
+  PHONE
+  WALKIN
+}
+
+// ─── Payment ───────────────────────────────────────────────────────────────
+model Payment {
+  id              String        @id @default(cuid())
+  establishmentId String
+  reservationId   String
+  registeredById  String
+  amount          Int           // monto CLP
+  method          PaymentMethod
+  status          PaymentStatus @default(COMPLETED)
+  notes           String?
+  paidAt          DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  reservation   Reservation   @relation(fields: [reservationId], references: [id])
+  registeredBy  User          @relation("RegisteredBy", fields: [registeredById], references: [id])
+
+  @@index([establishmentId, paidAt])
+  @@index([reservationId])
+}
+
+enum PaymentMethod {
+  CASH
+  DEBIT
+  CREDIT
+  TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  COMPLETED
+  PENDING
+  REFUNDED
+}
+
+// ─── InventoryProduct ─────────────────────────────────────────────────────
+model InventoryProduct {
+  id              String   @id @default(cuid())
+  establishmentId String
+  name            String
+  category        String   // "Aseo", "Ropa de cama", "Desayuno", etc.
+  stock           Int      @default(0)
+  minStock        Int      @default(5)
+  unit            String   // "unidad", "kg", "rollo", "litro"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  establishment Establishment       @relation(fields: [establishmentId], references: [id])
+  movements     InventoryMovement[]
+  invoiceItems  InvoiceItem[]
+
+  @@index([establishmentId])
+  @@index([establishmentId, category])
+}
+
+// ─── InventoryMovement ─────────────────────────────────────────────────────
+model InventoryMovement {
+  id        String       @id @default(cuid())
+  productId String
+  type      MovementType
+  quantity  Int
+  folio     String?
+  note      String?
+  createdAt DateTime     @default(now())
+
+  product InventoryProduct @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+enum MovementType {
+  ENTRY
+  EXIT
+}
+
+// ─── Supplier ───────────────────────────────────────────────────────────────
+model Supplier {
+  id              String   @id @default(cuid())
+  establishmentId String
+  name            String
+  rut             String?
+  phone           String?
+  email           String?
+  createdAt       DateTime @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  invoices      Invoice[]
+
+  @@index([establishmentId])
+}
+
+// ─── Invoice e InvoiceItem ──────────────────────────────────────────────────
+model Invoice {
+  id              String      @id @default(cuid())
+  establishmentId String
+  supplierId      String?
+  folio           String      // "B-0001", "F-0002"
+  type            InvoiceType
+  date            DateTime
+  total           Int         // CLP
+  photoUrls       String[]    // hasta 5 fotos del documento
+  syncedInventory Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  items         InvoiceItem[]
+
+  @@index([establishmentId])
+  @@index([folio])
+}
+
+model InvoiceItem {
+  id        String @id @default(cuid())
+  invoiceId String
+  productId String
+  quantity  Int
+  unitPrice Int?
+
+  invoice Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product InventoryProduct @relation(fields: [productId], references: [id])
+}
+
+enum InvoiceType {
+  BOLETA
+  FACTURA
+}
+
+// ─── ActivityLog ────────────────────────────────────────────────────────────
+model ActivityLog {
+  id              String   @id @default(cuid())
+  establishmentId String
+  userId          String
+  action          String   // "RESERVATION_CREATED", "PAYMENT_REGISTERED", etc.
+  entityType      String   // "reservation", "payment", "room", etc.
+  entityId        String?
+  description     String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@index([establishmentId, createdAt])
+  @@index([userId])
+  @@index([entityType, entityId])
+}
