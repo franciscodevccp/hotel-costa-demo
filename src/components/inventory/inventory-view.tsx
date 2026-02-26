@@ -31,7 +31,14 @@ export interface InventoryProduct {
   folio?: string;
 }
 
-type StockFilter = "" | "more" | "less";
+type StockFilter =
+  | ""
+  | "more"
+  | "less"
+  | "entradas-more"
+  | "entradas-less"
+  | "salidas-more"
+  | "salidas-less";
 
 /** Normaliza texto para búsqueda: minúsculas y sin tildes (azúcar → azucar) */
 function normalizeForSearch(s: string): string {
@@ -102,12 +109,20 @@ export function InventoryView({ products: initialProducts }: { products: Product
     }
   }, [hasLowStock]);
 
-  // Filtrar productos
+  // Filtrar y ordenar productos
   let filtered = [...products];
   if (stockFilter === "more") {
     filtered = filtered.sort((a, b) => b.stock - a.stock);
   } else if (stockFilter === "less") {
     filtered = filtered.sort((a, b) => a.stock - b.stock);
+  } else if (stockFilter === "entradas-more") {
+    filtered = filtered.sort((a, b) => (b.entradas ?? 0) - (a.entradas ?? 0));
+  } else if (stockFilter === "entradas-less") {
+    filtered = filtered.sort((a, b) => (a.entradas ?? 0) - (b.entradas ?? 0));
+  } else if (stockFilter === "salidas-more") {
+    filtered = filtered.sort((a, b) => (b.salidas ?? 0) - (a.salidas ?? 0));
+  } else if (stockFilter === "salidas-less") {
+    filtered = filtered.sort((a, b) => (a.salidas ?? 0) - (b.salidas ?? 0));
   }
   if (search) {
     const q = normalizeForSearch(search);
@@ -256,12 +271,16 @@ export function InventoryView({ products: initialProducts }: { products: Product
         <CustomSelect
           value={stockFilter}
           onChange={(v) => setStockFilter(v as StockFilter)}
-          placeholder="Ordenar por stock"
+          placeholder="Ordenar"
           options={[
             { value: "more", label: "Más stock primero" },
             { value: "less", label: "Menos stock primero" },
+            { value: "entradas-more", label: "Más entradas primero" },
+            { value: "entradas-less", label: "Menos entradas primero" },
+            { value: "salidas-more", label: "Más salidas primero" },
+            { value: "salidas-less", label: "Menos salidas primero" },
           ]}
-          className="min-w-[180px]"
+          className="min-w-[200px]"
         />
       </div>
 
