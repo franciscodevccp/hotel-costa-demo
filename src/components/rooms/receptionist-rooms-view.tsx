@@ -26,8 +26,9 @@ export function ReceptionistRoomsView({ rooms }: { rooms: Room[] }) {
   const filtered = rooms.filter(
     (r) => !search || r.roomNumber.toLowerCase().includes(search.toLowerCase())
   );
-  const availableRooms = filtered.filter((r) => r.status === "AVAILABLE");
-  const occupiedRooms = filtered.filter((r) => r.status === "OCCUPIED");
+  const statusFor = (r: Room) => (r as Room & { displayStatus?: string }).displayStatus ?? r.status;
+  const availableRooms = filtered.filter((r) => statusFor(r) === "AVAILABLE");
+  const occupiedRooms = filtered.filter((r) => statusFor(r) === "OCCUPIED");
 
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", minimumFractionDigits: 0 }).format(amount);
@@ -70,7 +71,7 @@ export function ReceptionistRoomsView({ rooms }: { rooms: Room[] }) {
             availableRooms.map((room) => (
               <div
                 key={room.id}
-                className={`rounded-xl border p-4 shadow-sm transition-all hover:shadow-md ${statusColors[room.status] ?? ""}`}
+                className={`rounded-xl border p-4 shadow-sm transition-all hover:shadow-md ${statusColors[statusFor(room)] ?? ""}`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -104,7 +105,7 @@ export function ReceptionistRoomsView({ rooms }: { rooms: Room[] }) {
             occupiedRooms.map((room) => (
               <div
                 key={room.id}
-                className={`rounded-xl border p-4 shadow-sm ${statusColors[room.status] ?? ""}`}
+                className={`rounded-xl border p-4 shadow-sm ${statusColors[statusFor(room)] ?? ""}`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">

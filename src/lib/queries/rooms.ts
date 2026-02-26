@@ -21,8 +21,31 @@ export async function getRooms(establishmentId: string, status?: string) {
       maxGuests: true,
     },
   });
+
+  // Habitaciones con reserva activa hoy (confirmada o check-in) → se muestran como Ocupada
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const occupiedRoomIds = await prisma.reservation
+    .findMany({
+      where: {
+        establishmentId,
+        roomId: { in: rooms.map((r) => r.id) },
+        status: { in: ["CONFIRMED", "CHECKED_IN"] },
+        checkIn: { lte: todayEnd },
+        checkOut: { gt: todayStart },
+      },
+      select: { roomId: true },
+    })
+    .then((rows) => new Set(rows.map((r) => r.roomId)));
+
+  const withDisplayStatus = rooms.map((r) => ({
+    ...r,
+    displayStatus: occupiedRoomIds.has(r.id) ? ("OCCUPIED" as const) : r.status,
+  }));
+
   // Orden numérico: 1, 2, 3, … 10, 11, … 22 (no 1, 10, 11, 2, 20…)
-  return rooms.sort((a, b) => {
+  return withDisplayStatus.sort((a, b) => {
     const na = Number(a.roomNumber);
     const nb = Number(b.roomNumber);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;

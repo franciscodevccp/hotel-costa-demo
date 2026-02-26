@@ -137,7 +137,7 @@ export function AdminRoomsView({ rooms }: { rooms: Room[] }) {
   };
 
   const filtered = rooms.filter((room) => {
-    const matchStatus = !statusFilter || room.status === statusFilter;
+    const matchStatus = !statusFilter || (room.displayStatus ?? room.status) === statusFilter;
     const matchSearch = !search || room.roomNumber.toLowerCase().includes(search.toLowerCase());
     return matchStatus && matchSearch;
   });
@@ -579,8 +579,8 @@ export function AdminRoomsView({ rooms }: { rooms: Room[] }) {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[room.status] ?? ""}`}>
-                  {statusLabels[room.status] ?? room.status}
+                <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[room.displayStatus ?? room.status] ?? ""}`}>
+                  {statusLabels[room.displayStatus ?? room.status] ?? (room.displayStatus ?? room.status)}
                 </span>
                 <button
                   type="button"
