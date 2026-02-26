@@ -10,9 +10,14 @@ import {
   X,
   Trash2,
   Upload,
+  AlertTriangle,
 } from "lucide-react";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
-import { createInvoice, syncInvoiceWithInventory } from "@/app/dashboard/invoices/actions";
+import {
+  createInvoice,
+  syncInvoiceWithInventory,
+  deleteInvoice as deleteInvoiceAction,
+} from "@/app/dashboard/invoices/actions";
 
 export interface InvoiceItem {
   productId: string;
@@ -46,6 +51,10 @@ export function InvoicesView({
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState(false);
+  const [deleteInvoiceError, setDeleteInvoiceError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [folioFilter, setFolioFilter] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -233,6 +242,22 @@ export function InvoicesView({
     router.refresh();
   };
 
+  const handleConfirmDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+    setDeletingInvoice(true);
+    setDeleteInvoiceError(null);
+    const result = await deleteInvoiceAction(invoiceToDelete.id);
+    setDeletingInvoice(false);
+    if (result.error) {
+      setDeleteInvoiceError(result.error);
+      return;
+    }
+    setInvoices((prev) => prev.filter((i) => i.id !== invoiceToDelete.id));
+    if (selectedInvoice?.id === invoiceToDelete.id) setSelectedInvoice(null);
+    setInvoiceToDelete(null);
+    router.refresh();
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -295,15 +320,29 @@ export function InvoicesView({
                   </p>
                 </div>
               </div>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                  inv.syncedWithInventory
-                    ? "bg-[var(--success)]/10 text-[var(--success)]"
-                    : "bg-[var(--warning)]/10 text-[var(--warning)]"
-                }`}
-              >
-                {inv.syncedWithInventory ? "Sincronizado" : "Pendiente"}
-              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    inv.syncedWithInventory
+                      ? "bg-[var(--success)]/10 text-[var(--success)]"
+                      : "bg-[var(--warning)]/10 text-[var(--warning)]"
+                  }`}
+                >
+                  {inv.syncedWithInventory ? "Sincronizado" : "Pendiente"}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setInvoiceToDelete(inv);
+                  }}
+                  className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                  title="Eliminar"
+                  aria-label="Eliminar boleta o factura"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <p className="mt-3 text-lg font-bold text-[var(--foreground)]">
               {formatCLP(inv.total)}
@@ -584,13 +623,27 @@ export function InvoicesView({
                   {selectedInvoice.date}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedInvoice(null)}
-                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInvoiceToDelete(selectedInvoice);
+                    setSelectedInvoice(null);
+                  }}
+                  className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                  title="Eliminar"
+                  aria-label="Eliminar"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedInvoice(null)}
+                  className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <p className="mt-2 text-2xl font-bold text-[var(--foreground)]">
               {formatCLP(selectedInvoice.total)}
@@ -602,16 +655,18 @@ export function InvoicesView({
                 </p>
                 <div className="flex gap-2 overflow-x-auto pb-2">
                   {selectedInvoice.photoUrls.map((url, i) => (
-                    <div
+                    <button
                       key={i}
-                      className="h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-[var(--border)]"
+                      type="button"
+                      onClick={() => setPhotoPreviewUrl(url)}
+                      className="h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-[var(--border)] transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                     >
                       <img
                         src={url}
                         alt={`Foto ${i + 1}`}
                         className="h-full w-full object-cover"
                       />
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -655,6 +710,98 @@ export function InvoicesView({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Modal confirmar eliminar boleta/factura */}
+      {invoiceToDelete && (
+        <div
+          className="fixed inset-0 z-[55] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => {
+            if (!deletingInvoice) {
+              setInvoiceToDelete(null);
+              setDeleteInvoiceError(null);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 p-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--destructive)]/20">
+                <AlertTriangle className="h-5 w-5 text-[var(--destructive)]" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-[var(--foreground)]">
+                  ¿Eliminar documento?
+                </h3>
+                <p className="text-sm text-[var(--muted)]">
+                  Esta acción no se puede deshacer.
+                </p>
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-[var(--foreground)]">
+              Estás a punto de eliminar la{" "}
+              {invoiceToDelete.type === "boleta" ? "boleta" : "factura"}{" "}
+              <strong>&quot;{invoiceToDelete.folio}&quot;</strong> (
+              {formatCLP(invoiceToDelete.total)}
+              ). Se eliminarán las fotos y los ítems vinculados. Los movimientos ya
+              sincronizados con el inventario no se revierten.
+            </p>
+            {deleteInvoiceError && (
+              <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
+                {deleteInvoiceError}
+              </p>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setInvoiceToDelete(null);
+                  setDeleteInvoiceError(null);
+                }}
+                disabled={deletingInvoice}
+                className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteInvoice}
+                disabled={deletingInvoice}
+                className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {deletingInvoice ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para ver foto en grande */}
+      {photoPreviewUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPhotoPreviewUrl(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Ver foto"
+        >
+          <button
+            type="button"
+            onClick={() => setPhotoPreviewUrl(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white"
+            aria-label="Cerrar"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          <img
+            src={photoPreviewUrl}
+            alt="Foto del documento"
+            className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>

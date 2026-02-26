@@ -112,3 +112,62 @@ export async function syncInvoiceWithInventory(
   revalidatePath("/dashboard/inventory");
   return { success: true };
 }
+
+export type DeleteInvoiceState = { error?: string };
+
+export async function deleteInvoice(invoiceId: string): Promise<DeleteInvoiceState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, establishmentId: session.user.establishmentId },
+  });
+  if (!invoice) return { error: "Boleta/factura no encontrada" };
+
+  await prisma.invoice.delete({ where: { id: invoiceId } });
+
+  revalidatePath("/dashboard/invoices");
+  revalidatePath("/dashboard/inventory");
+  return {};
+}
+
+export type InvoiceByFolio = {
+  folio: string;
+  type: "boleta" | "factura";
+  date: string;
+  total: number;
+  photoUrls: string[];
+  items: { productName: string; quantity: number; unit: string; unitPrice: number }[];
+} | null;
+
+export async function getInvoiceByFolio(folio: string): Promise<InvoiceByFolio> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) return null;
+
+  const raw = await prisma.invoice.findFirst({
+    where: {
+      establishmentId: session.user.establishmentId,
+      folio: folio.trim().toUpperCase(),
+    },
+    include: {
+      items: { include: { product: { select: { name: true, unit: true } } } },
+    },
+  });
+  if (!raw) return null;
+
+  return {
+    folio: raw.folio,
+    type: raw.type === "FACTURA" ? "factura" : "boleta",
+    date: raw.date.toISOString().slice(0, 10),
+    total: raw.total,
+    photoUrls: raw.photoUrls,
+    items: raw.items.map((i) => ({
+      productName: i.product.name,
+      quantity: i.quantity,
+      unit: i.product.unit,
+      unitPrice: i.unitPrice ?? 0,
+    })),
+  };
+}

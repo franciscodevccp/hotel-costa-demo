@@ -9,15 +9,21 @@ import {
   AlertTriangle,
   ArrowDownCircle,
   ArrowUpCircle,
+  ArrowUp,
+  ArrowDown,
   X,
   FileText,
   Trash2,
 } from "lucide-react";
-import { CustomSelect } from "@/components/ui/custom-select";
 import {
   deleteProduct as deleteProductAction,
   registerMovement as registerMovementAction,
 } from "@/app/dashboard/inventory/actions";
+import {
+  getInvoiceByFolio,
+  type InvoiceByFolio,
+} from "@/app/dashboard/invoices/actions";
+import { CustomSelect } from "@/components/ui/custom-select";
 
 export interface InventoryProduct {
   id: string;
@@ -31,14 +37,7 @@ export interface InventoryProduct {
   folio?: string;
 }
 
-type StockFilter =
-  | ""
-  | "more"
-  | "less"
-  | "entradas-more"
-  | "entradas-less"
-  | "salidas-more"
-  | "salidas-less";
+type SortColumn = "product" | "category" | "stock" | "folio" | "entradas" | "salidas";
 
 /** Normaliza texto para búsqueda: minúsculas y sin tildes (azúcar → azucar) */
 function normalizeForSearch(s: string): string {
@@ -77,7 +76,12 @@ export function InventoryView({ products: initialProducts }: { products: Product
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [movementSubmitting, setMovementSubmitting] = useState(false);
   const [movementError, setMovementError] = useState<string | null>(null);
-  const [stockFilter, setStockFilter] = useState<StockFilter>("");
+  const [invoicePreview, setInvoicePreview] = useState<InvoiceByFolio | null>(null);
+  const [invoicePreviewFolio, setInvoicePreviewFolio] = useState<string | null>(null);
+  const [loadingInvoicePreview, setLoadingInvoicePreview] = useState(false);
+  const [invoicePhotoPreviewUrl, setInvoicePhotoPreviewUrl] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortColumn>("product");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [search, setSearch] = useState("");
   const [showLowStockAlert, setShowLowStockAlert] = useState(true);
 
@@ -111,19 +115,6 @@ export function InventoryView({ products: initialProducts }: { products: Product
 
   // Filtrar y ordenar productos
   let filtered = [...products];
-  if (stockFilter === "more") {
-    filtered = filtered.sort((a, b) => b.stock - a.stock);
-  } else if (stockFilter === "less") {
-    filtered = filtered.sort((a, b) => a.stock - b.stock);
-  } else if (stockFilter === "entradas-more") {
-    filtered = filtered.sort((a, b) => (b.entradas ?? 0) - (a.entradas ?? 0));
-  } else if (stockFilter === "entradas-less") {
-    filtered = filtered.sort((a, b) => (a.entradas ?? 0) - (b.entradas ?? 0));
-  } else if (stockFilter === "salidas-more") {
-    filtered = filtered.sort((a, b) => (b.salidas ?? 0) - (a.salidas ?? 0));
-  } else if (stockFilter === "salidas-less") {
-    filtered = filtered.sort((a, b) => (a.salidas ?? 0) - (b.salidas ?? 0));
-  }
   if (search) {
     const q = normalizeForSearch(search);
     filtered = filtered.filter(
@@ -132,6 +123,37 @@ export function InventoryView({ products: initialProducts }: { products: Product
         normalizeForSearch(p.category).includes(q)
     );
   }
+
+  // Ordenar: producto y categoría A-Z (asc); stock, folio, entradas, salidas mayor a menor (desc)
+  const defaultDesc = ["stock", "folio", "entradas", "salidas"].includes(sortBy);
+  const order = sortOrder === "asc" ? 1 : -1;
+  filtered = [...filtered].sort((a, b) => {
+    if (sortBy === "product") {
+      return order * (a.name.localeCompare(b.name, "es"));
+    }
+    if (sortBy === "category") {
+      return order * (a.category.localeCompare(b.category, "es"));
+    }
+    if (sortBy === "stock") return order * (a.stock - b.stock);
+    if (sortBy === "entradas") return order * ((a.entradas ?? 0) - (b.entradas ?? 0));
+    if (sortBy === "salidas") return order * ((a.salidas ?? 0) - (b.salidas ?? 0));
+    if (sortBy === "folio") {
+      const fa = a.folio ?? "";
+      const fb = b.folio ?? "";
+      return order * fa.localeCompare(fb, "es");
+    }
+    return 0;
+  });
+
+  const handleSort = (column: SortColumn) => {
+    const defaultDesc = ["stock", "folio", "entradas", "salidas"].includes(column);
+    if (sortBy === column) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(column);
+      setSortOrder(defaultDesc ? "desc" : "asc");
+    }
+  };
 
   const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,6 +197,24 @@ export function InventoryView({ products: initialProducts }: { products: Product
     setMovementFolio("");
     router.refresh();
   };
+
+  const handleFolioClick = async (folio: string) => {
+    setInvoicePreviewFolio(folio);
+    setLoadingInvoicePreview(true);
+    setInvoicePreview(null);
+    const data = await getInvoiceByFolio(folio);
+    setLoadingInvoicePreview(false);
+    setInvoicePreview(data ?? null);
+  };
+
+  const closeInvoicePreview = () => {
+    setInvoicePreview(null);
+    setInvoicePreviewFolio(null);
+    setInvoicePhotoPreviewUrl(null);
+  };
+
+  const formatCLP = (amount: number) =>
+    new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(amount);
 
   const handleConfirmDelete = async () => {
     if (!productToDelete) return;
@@ -256,31 +296,15 @@ export function InventoryView({ products: initialProducts }: { products: Product
         </button>
       </div>
 
-      {/* Filtros */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-          <input
-            type="text"
-            placeholder="Buscar por nombre o categoría..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-          />
-        </div>
-        <CustomSelect
-          value={stockFilter}
-          onChange={(v) => setStockFilter(v as StockFilter)}
-          placeholder="Ordenar"
-          options={[
-            { value: "more", label: "Más stock primero" },
-            { value: "less", label: "Menos stock primero" },
-            { value: "entradas-more", label: "Más entradas primero" },
-            { value: "entradas-less", label: "Menos entradas primero" },
-            { value: "salidas-more", label: "Más salidas primero" },
-            { value: "salidas-less", label: "Menos salidas primero" },
-          ]}
-          className="min-w-[200px]"
+      {/* Buscador */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
+        <input
+          type="text"
+          placeholder="Buscar por nombre o categoría..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
         />
       </div>
 
@@ -289,12 +313,82 @@ export function InventoryView({ products: initialProducts }: { products: Product
         <table className="w-full min-w-[700px] text-left text-sm">
           <thead>
             <tr className="border-b border-[var(--border)] bg-[var(--background)]">
-              <th className="px-4 py-3 font-medium text-[var(--foreground)]">Producto</th>
-              <th className="px-4 py-3 font-medium text-[var(--foreground)]">Categoría</th>
-              <th className="px-4 py-3 font-medium text-[var(--foreground)]">Stock</th>
-              <th className="px-4 py-3 font-medium text-[var(--foreground)]">Folio / Factura</th>
-              <th className="px-4 py-3 font-medium text-[var(--foreground)]">Entradas</th>
-              <th className="px-4 py-3 font-medium text-[var(--foreground)]">Salidas</th>
+              {(
+                [
+                  {
+                    id: "product" as const,
+                    label: "Producto",
+                    hintAsc: "A-Z",
+                    hintDesc: "Z-A",
+                  },
+                  {
+                    id: "category" as const,
+                    label: "Categoría",
+                    hintAsc: "A-Z",
+                    hintDesc: "Z-A",
+                  },
+                  {
+                    id: "stock" as const,
+                    label: "Stock",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                  {
+                    id: "folio" as const,
+                    label: "Folio / Factura",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                  {
+                    id: "entradas" as const,
+                    label: "Entradas",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                  {
+                    id: "salidas" as const,
+                    label: "Salidas",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                ] as const
+              ).map(({ id, label, hintAsc, hintDesc }) => {
+                const isActive = sortBy === id;
+                const isAsc = sortOrder === "asc";
+                return (
+                  <th key={id} className="px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSort(id)}
+                      aria-pressed={isActive}
+                      aria-label={`Ordenar por ${label}, ${isActive ? (isAsc ? "ascendente" : "descendente") : "clic para ordenar"}`}
+                      className={`
+                        flex items-center gap-1.5 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors
+                        focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 focus:ring-offset-[var(--background)]
+                        ${isActive ? "bg-[var(--primary)]/15 text-[var(--primary)]" : "text-[var(--foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"}
+                      `}
+                    >
+                      <span>{label}</span>
+                      {isActive ? (
+                        <span className="flex items-center gap-0.5">
+                          {isAsc ? (
+                            <ArrowUp className="h-4 w-4 shrink-0" aria-hidden />
+                          ) : (
+                            <ArrowDown className="h-4 w-4 shrink-0" aria-hidden />
+                          )}
+                          <span className="text-xs font-normal opacity-90">
+                            ({isAsc ? hintAsc : hintDesc})
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--muted)]" aria-hidden>
+                          ↕
+                        </span>
+                      )}
+                    </button>
+                  </th>
+                );
+              })}
               <th className="px-4 py-3 font-medium text-[var(--foreground)]">Acciones</th>
             </tr>
           </thead>
@@ -338,10 +432,18 @@ export function InventoryView({ products: initialProducts }: { products: Product
                   </td>
                   <td className="px-4 py-3">
                     {product.folio ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 px-2.5 py-1 text-xs font-medium text-[var(--primary)]">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFolioClick(product.folio!);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 px-2.5 py-1 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
+                        title="Ver boleta/factura"
+                      >
                         <FileText className="h-3.5 w-3.5" />
                         {product.folio}
-                      </span>
+                      </button>
                     ) : (
                       <span className="text-xs text-[var(--muted)]">—</span>
                     )}
@@ -419,7 +521,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
                 </label>
                 <CustomSelect
                   value={newProduct.category}
-                  onChange={(v) =>
+                  onChange={(v: string) =>
                     setNewProduct((p) => ({ ...p, category: v }))
                   }
                   placeholder="Seleccionar categoría"
@@ -474,7 +576,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
                 </label>
                 <CustomSelect
                   value={newProduct.unit}
-                  onChange={(v) =>
+                  onChange={(v: string) =>
                     setNewProduct((p) => ({ ...p, unit: v }))
                   }
                   placeholder="Seleccionar unidad"
@@ -641,6 +743,121 @@ export function InventoryView({ products: initialProducts }: { products: Product
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Modal ver boleta/factura desde inventario */}
+      {invoicePreviewFolio != null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={closeInvoicePreview}
+        >
+          <div
+            className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                {invoicePreviewFolio}
+              </h3>
+              <button
+                type="button"
+                onClick={closeInvoicePreview}
+                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {loadingInvoicePreview && (
+              <p className="mt-4 text-sm text-[var(--muted)]">Cargando…</p>
+            )}
+            {!loadingInvoicePreview && !invoicePreview && (
+              <p className="mt-4 text-sm text-[var(--muted)]">
+                No se encontró el documento con folio {invoicePreviewFolio}.
+              </p>
+            )}
+            {!loadingInvoicePreview && invoicePreview && (
+              <>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {invoicePreview.type === "boleta" ? "Boleta" : "Factura"} · {invoicePreview.date}
+                </p>
+                <p className="mt-2 text-2xl font-bold text-[var(--foreground)]">
+                  {formatCLP(invoicePreview.total)}
+                </p>
+                {invoicePreview.photoUrls.length > 0 && (
+                  <div className="mt-4">
+                    <p className="mb-2 text-sm font-medium text-[var(--foreground)]">
+                      Fotos
+                    </p>
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                      {invoicePreview.photoUrls.map((url, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setInvoicePhotoPreviewUrl(url)}
+                          className="h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-[var(--border)] transition-opacity hover:opacity-90"
+                        >
+                          <img
+                            src={url}
+                            alt={`Foto ${i + 1}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-4">
+                  <p className="mb-2 text-sm font-medium text-[var(--foreground)]">
+                    Productos
+                  </p>
+                  <ul className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                    {invoicePreview.items.map((item, i) => (
+                      <li
+                        key={i}
+                        className="flex justify-between text-sm"
+                      >
+                        <span className="text-[var(--foreground)]">{item.productName}</span>
+                        <span className="font-medium text-[var(--muted)]">
+                          {item.quantity} {item.unit}
+                          {item.unitPrice > 0 && (
+                            <> · {formatCLP(item.unitPrice)} = {formatCLP(item.quantity * item.unitPrice)}</>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal foto en grande (desde vista boleta en inventario) */}
+      {invoicePhotoPreviewUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setInvoicePhotoPreviewUrl(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Ver foto"
+        >
+          <button
+            type="button"
+            onClick={() => setInvoicePhotoPreviewUrl(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            aria-label="Cerrar"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          <img
+            src={invoicePhotoPreviewUrl}
+            alt="Foto del documento"
+            className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
