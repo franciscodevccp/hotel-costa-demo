@@ -10,7 +10,7 @@ export async function createInvoice(
   _prev: CreateInvoiceState,
   payload: {
     folio: string;
-    type: "boleta" | "factura";
+    type: "boleta" | "factura" | "guia_despacho" | "cotizacion";
     date: string;
     total: number;
     photoUrls: string[];
@@ -25,7 +25,7 @@ export async function createInvoice(
   const folio = payload.folio.trim().toUpperCase();
   if (!folio) return { error: "El folio es obligatorio" };
 
-  const type = payload.type === "factura" ? "FACTURA" : "BOLETA";
+  const type = payload.type === "factura" ? "FACTURA" : payload.type === "guia_despacho" ? "GUIA_DESPACHO" : payload.type === "cotizacion" ? "COTIZACION" : "BOLETA";
   const date = new Date(payload.date);
   if (Number.isNaN(date.getTime())) return { error: "Fecha no válida" };
 
@@ -135,7 +135,7 @@ export async function deleteInvoice(invoiceId: string): Promise<DeleteInvoiceSta
 
 export type InvoiceByFolio = {
   folio: string;
-  type: "boleta" | "factura";
+  type: "boleta" | "factura" | "guia_despacho" | "cotizacion";
   date: string;
   total: number;
   photoUrls: string[];
@@ -159,7 +159,7 @@ export async function getInvoiceByFolio(folio: string): Promise<InvoiceByFolio> 
 
   return {
     folio: raw.folio,
-    type: raw.type === "FACTURA" ? "factura" : "boleta",
+    type: raw.type === "FACTURA" ? "factura" : raw.type === "GUIA_DESPACHO" ? "guia_despacho" : raw.type === "COTIZACION" ? "cotizacion" : "boleta",
     date: raw.date.toISOString().slice(0, 10),
     total: raw.total,
     photoUrls: raw.photoUrls,

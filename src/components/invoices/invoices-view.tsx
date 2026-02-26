@@ -32,7 +32,7 @@ export interface Invoice {
   folio: string;
   date: string;
   total: number;
-  type: "boleta" | "factura";
+  type: "boleta" | "factura" | "guia_despacho" | "cotizacion";
   photoUrls: string[];
   items: InvoiceItem[];
   syncedWithInventory: boolean;
@@ -70,7 +70,7 @@ export function InvoicesView({
   const [formFolio, setFormFolio] = useState("");
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formTotal, setFormTotal] = useState(0);
-  const [formType, setFormType] = useState<"boleta" | "factura">("boleta");
+  const [formType, setFormType] = useState<"boleta" | "factura" | "guia_despacho" | "cotizacion">("boleta");
   const [formPhotos, setFormPhotos] = useState<string[]>([]);
   const [formItems, setFormItems] = useState<InvoiceItem[]>([]);
   const [newItemProduct, setNewItemProduct] = useState("");
@@ -316,17 +316,16 @@ export function InvoicesView({
                 <div>
                   <p className="font-semibold text-[var(--foreground)]">{inv.folio}</p>
                   <p className="text-xs text-[var(--muted)]">
-                    {inv.type === "boleta" ? "Boleta" : "Factura"} · {inv.date}
+                    {inv.type === "boleta" ? "Boleta" : inv.type === "guia_despacho" ? "Guía de Despacho" : inv.type === "cotizacion" ? "Cotización" : "Factura"} · {inv.date}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    inv.syncedWithInventory
-                      ? "bg-[var(--success)]/10 text-[var(--success)]"
-                      : "bg-[var(--warning)]/10 text-[var(--warning)]"
-                  }`}
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${inv.syncedWithInventory
+                    ? "bg-[var(--success)]/10 text-[var(--success)]"
+                    : "bg-[var(--warning)]/10 text-[var(--warning)]"
+                    }`}
                 >
                   {inv.syncedWithInventory ? "Sincronizado" : "Pendiente"}
                 </span>
@@ -411,12 +410,14 @@ export function InvoicesView({
                   <select
                     value={formType}
                     onChange={(e) =>
-                      setFormType(e.target.value as "boleta" | "factura")
+                      setFormType(e.target.value as "boleta" | "factura" | "guia_despacho" | "cotizacion")
                     }
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   >
                     <option value="boleta">Boleta</option>
                     <option value="factura">Factura</option>
+                    <option value="guia_despacho">Guía de Despacho</option>
+                    <option value="cotizacion">Cotización</option>
                   </select>
                 </div>
               </div>
@@ -619,7 +620,7 @@ export function InvoicesView({
                   {selectedInvoice.folio}
                 </h3>
                 <p className="text-sm text-[var(--muted)]">
-                  {selectedInvoice.type === "boleta" ? "Boleta" : "Factura"} ·{" "}
+                  {selectedInvoice.type === "boleta" ? "Boleta" : selectedInvoice.type === "guia_despacho" ? "Guía de Despacho" : selectedInvoice.type === "cotizacion" ? "Cotización" : "Factura"} ·{" "}
                   {selectedInvoice.date}
                 </p>
               </div>
@@ -743,7 +744,7 @@ export function InvoicesView({
             </div>
             <p className="mt-4 text-sm text-[var(--foreground)]">
               Estás a punto de eliminar la{" "}
-              {invoiceToDelete.type === "boleta" ? "boleta" : "factura"}{" "}
+              {invoiceToDelete.type === "boleta" ? "boleta" : invoiceToDelete.type === "guia_despacho" ? "guía de despacho" : invoiceToDelete.type === "cotizacion" ? "cotización" : "factura"}{" "}
               <strong>&quot;{invoiceToDelete.folio}&quot;</strong> (
               {formatCLP(invoiceToDelete.total)}
               ). Se eliminarán las fotos y los ítems vinculados. Los movimientos ya

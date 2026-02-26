@@ -31,7 +31,6 @@ model Establishment {
   products     InventoryProduct[]
   suppliers    Supplier[]
   invoices     Invoice[]
-  activityLogs ActivityLog[]
 }
 
 // ─── User ─────────────────────────────────────────────────────────────────
@@ -49,7 +48,6 @@ model User {
 
   establishment Establishment  @relation(fields: [establishmentId], references: [id])
   payments      Payment[]      @relation("RegisteredBy")
-  activityLogs  ActivityLog[]
 
   @@index([establishmentId])
 }
@@ -300,27 +298,10 @@ model InvoiceItem {
 enum InvoiceType {
   BOLETA
   FACTURA
+  GUIA_DESPACHO
+  COTIZACION
 }
 
-// ─── ActivityLog ────────────────────────────────────────────────────────────
-model ActivityLog {
-  id              String   @id @default(cuid())
-  establishmentId String
-  userId          String
-  action          String   // "RESERVATION_CREATED", "PAYMENT_REGISTERED", etc.
-  entityType      String   // "reservation", "payment", "room", etc.
-  entityId        String?
-  description     String?
-  metadata        Json?
-  createdAt       DateTime @default(now())
-
-  establishment Establishment @relation(fields: [establishmentId], references: [id])
-  user          User          @relation(fields: [userId], references: [id])
-
-  @@index([establishmentId, createdAt])
-  @@index([userId])
-  @@index([entityType, entityId])
-}
 
 // ─── SyncLog (MotoPress / integraciones) ────────────────────────────────────
 model SyncLog {

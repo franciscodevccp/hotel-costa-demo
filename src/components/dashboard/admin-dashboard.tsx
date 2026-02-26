@@ -15,18 +15,15 @@ import { WidgetCard } from "@/components/dashboard/widget-card";
 type DashboardStats = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getDashboardStats>>;
 type PendingPreview = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getPendingPaymentsPreview>>;
 type LowStock = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getLowStockProducts>>;
-type RecentActivity = Awaited<ReturnType<typeof import("@/lib/queries/dashboard").getRecentActivity>>;
 
 export function AdminDashboard({
   stats,
   pagosPendientesPreview,
   productosBajoStock,
-  recentActivity,
 }: {
   stats: DashboardStats;
   pagosPendientesPreview: PendingPreview;
   productosBajoStock: LowStock;
-  recentActivity: RecentActivity;
 }) {
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", {
@@ -99,27 +96,8 @@ export function AdminDashboard({
         />
       </div>
 
-      {/* Widgets: 3 columnas */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Actividad reciente */}
-        <WidgetCard title="Actividad Reciente">
-          <div className="space-y-3">
-            {recentActivity.map((activity) => (
-              <div
-                key={activity.id}
-                className="flex items-center justify-between border-b border-[var(--border)] pb-3 last:border-0 last:pb-0"
-              >
-                <div>
-                  <p className="text-sm font-medium text-[var(--foreground)]">
-                    {activity.action}
-                  </p>
-                  <p className="text-xs text-[var(--muted)]">{activity.user}</p>
-                </div>
-                <span className="text-xs text-[var(--muted)]">{activity.time}</span>
-              </div>
-            ))}
-          </div>
-        </WidgetCard>
+      <div className="grid gap-4 lg:grid-cols-2">
+
 
         {/* Pagos pendientes por cobrar */}
         <WidgetCard

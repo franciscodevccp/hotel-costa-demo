@@ -14,7 +14,7 @@ export default async function InvoicesPage() {
     folio: inv.folio,
     date: format(inv.date, "yyyy-MM-dd"),
     total: inv.total,
-    type: inv.type.toLowerCase() as "boleta" | "factura",
+    type: (inv.type === "GUIA_DESPACHO" ? "guia_despacho" : inv.type === "COTIZACION" ? "cotizacion" : inv.type.toLowerCase()) as "boleta" | "factura" | "guia_despacho" | "cotizacion",
     photoUrls: inv.photoUrls,
     items: inv.items.map((i) => ({
       productId: i.productId,

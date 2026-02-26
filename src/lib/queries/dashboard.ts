@@ -183,17 +183,4 @@ export async function getTodayCheckouts(establishmentId: string) {
   }));
 }
 
-export async function getRecentActivity(establishmentId: string, limit = 5) {
-  const logs = await prisma.activityLog.findMany({
-    where: { establishmentId },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    include: { user: { select: { fullName: true } } },
-  });
-  return logs.map((log) => ({
-    id: log.id,
-    action: log.action,
-    user: log.user.fullName,
-    time: formatDistanceToNow(log.createdAt, { addSuffix: true, locale: es }),
-  }));
-}
+

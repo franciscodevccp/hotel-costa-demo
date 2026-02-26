@@ -10,31 +10,30 @@ export default async function SettingsPage() {
   ]);
   const establishmentForView = establishment
     ? {
-        id: establishment.id,
-        name: establishment.name,
-        address: establishment.address ?? "",
-        phone: establishment.phone ?? "",
-        email: establishment.email ?? "",
-        total_rooms: establishment.totalRooms ?? 0,
-        logo_url: establishment.logoUrl,
-        created_at: "",
-      }
+      id: establishment.id,
+      name: establishment.name,
+      address: establishment.address ?? "",
+      phone: establishment.phone ?? "",
+      email: establishment.email ?? "",
+      total_rooms: establishment.totalRooms ?? 0,
+      logo_url: establishment.logoUrl,
+      created_at: "",
+    }
     : null;
+
   const workersForView = workers.map((w) => ({
     id: w.id,
-    auth_id: null,
-    establishment_id: session.user.establishmentId,
-    full_name: w.fullName,
+    fullName: w.fullName,
     email: w.email,
-    role: (w.role === "ADMIN" ? "admin" : "receptionist") as "admin" | "receptionist",
-    avatar_url: null,
-    is_active: w.isActive,
-    created_at: "",
+    role: w.role as "ADMIN" | "RECEPTIONIST",
   }));
 
   return (
     <div className="p-6">
-      <AdminSettingsView establishment={establishmentForView} workers={workersForView} />
+      <AdminSettingsView
+        establishment={establishmentForView}
+        workers={workersForView}
+      />
     </div>
   );
 }

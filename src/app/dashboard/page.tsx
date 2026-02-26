@@ -4,7 +4,6 @@ import {
   getDashboardStats,
   getPendingPaymentsPreview,
   getLowStockProducts,
-  getRecentActivity,
   getTodayCheckins,
   getTodayCheckouts,
 } from "@/lib/queries/dashboard";
@@ -16,11 +15,10 @@ export default async function DashboardPage() {
   const establishmentId = session.user.establishmentId;
   const userRole: UserRole = session.user.role === "ADMIN" ? "admin" : "receptionist";
 
-  const [stats, pagosPendientesPreview, productosBajoStock, recentActivity, todayCheckins, todayCheckouts] = await Promise.all([
+  const [stats, pagosPendientesPreview, productosBajoStock, todayCheckins, todayCheckouts] = await Promise.all([
     getDashboardStats(establishmentId),
     getPendingPaymentsPreview(establishmentId, 5),
     getLowStockProducts(establishmentId, 10),
-    getRecentActivity(establishmentId, 5),
     getTodayCheckins(establishmentId),
     getTodayCheckouts(establishmentId),
   ]);
@@ -37,7 +35,6 @@ export default async function DashboardPage() {
           stats={stats}
           pagosPendientesPreview={pagosPendientesPreview}
           productosBajoStock={productosBajoStock}
-          recentActivity={recentActivity}
         />
       )}
       {userRole === "receptionist" && (

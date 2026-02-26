@@ -88,21 +88,4 @@ export interface Payment {
   paid_at: string;
 }
 
-export interface ActivityLog {
-  id: string;
-  establishment_id: string;
-  user_id: string;
-  action: string;
-  entity_type: string;
-  entity_id: string | null;
-  description: string | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-}
 
-/** Tipo para sesión mock (usuario simulado sin base de datos) */
-export interface MockSession {
-  full_name: string;
-  email: string;
-  role: UserRole;
-}
