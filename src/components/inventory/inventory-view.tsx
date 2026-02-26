@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Package,
   Plus,
@@ -10,8 +11,10 @@ import {
   ArrowUpCircle,
   X,
   FileText,
+  Trash2,
 } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
+import { deleteProduct as deleteProductAction } from "@/app/dashboard/inventory/actions";
 
 export interface InventoryProduct {
   id: string;
@@ -52,12 +55,16 @@ function toInventoryProduct(p: ProductRow): InventoryProduct {
 }
 
 export function InventoryView({ products: initialProducts }: { products: ProductRow[] }) {
+  const router = useRouter();
   const [products, setProducts] = useState<InventoryProduct[]>(() => initialProducts.map(toInventoryProduct));
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMovementModal, setShowMovementModal] = useState<{
     product: InventoryProduct;
     type: "entrada" | "salida";
   } | null>(null);
+  const [productToDelete, setProductToDelete] = useState<InventoryProduct | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [stockFilter, setStockFilter] = useState<StockFilter>("");
   const [search, setSearch] = useState("");
   const [showLowStockAlert, setShowLowStockAlert] = useState(true);
@@ -78,7 +85,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
   const lowStockProducts = products.filter((p) => p.stock < p.minStock);
   const hasLowStock = lowStockProducts.length > 0;
 
-  // Alerta de bajo stock al entrar (demo: se muestra al montar el componente)
+  // Alerta de bajo stock al entrar (se muestra al montar el componente)
   useEffect(() => {
     if (hasLowStock) {
       setShowLowStockAlert(true);
@@ -124,6 +131,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
     e.preventDefault();
     if (!showMovementModal || movementQty <= 0) return;
     const { product, type } = showMovementModal;
+    if (type === "salida" && movementQty > product.stock) return;
     const folioToSave = movementFolio.trim() || undefined;
     setProducts((prev) =>
       prev.map((p) => {
@@ -142,6 +150,21 @@ export function InventoryView({ products: initialProducts }: { products: Product
     setShowMovementModal(null);
     setMovementQty(0);
     setMovementFolio("");
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const result = await deleteProductAction(productToDelete.id);
+    setDeleting(false);
+    if (result.error) {
+      setDeleteError(result.error);
+      return;
+    }
+    setProducts((prev) => prev.filter((p) => p.id !== productToDelete.id));
+    setProductToDelete(null);
+    router.refresh();
   };
 
   return (
@@ -197,7 +220,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
             Inventario
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Gestiona productos, entradas y salidas. Stock en tiempo real (demo).
+            Gestiona productos, entradas y salidas. Stock en tiempo real.
           </p>
         </div>
         <button
@@ -268,7 +291,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
                       <div>
                         <p className="font-medium text-[var(--foreground)]">{product.name}</p>
                         <p className="text-xs text-[var(--muted)]">
-                          Mín: {product.minStock} {product.unit}
+                          Stock total: {product.stock} {product.unit}
                         </p>
                       </div>
                     </div>
@@ -318,6 +341,15 @@ export function InventoryView({ products: initialProducts }: { products: Product
                       >
                         <ArrowUpCircle className="h-3.5 w-3.5" />
                         Salida
+                      </button>
+                      <button
+                        onClick={() => setProductToDelete(product)}
+                        className="flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--card)] p-1.5 text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] hover:border-[var(--destructive)]/30"
+                        title="Eliminar producto"
+                        type="button"
+                        aria-label="Eliminar producto"
+                      >
+                        <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </td>
@@ -492,8 +524,8 @@ export function InventoryView({ products: initialProducts }: { products: Product
               </div>
               {showMovementModal.type === "salida" &&
                 movementQty > showMovementModal.product.stock && (
-                  <p className="text-xs text-[var(--destructive)]">
-                    La cantidad supera el stock actual. Se permitirá (demo).
+                  <p className="text-sm font-medium text-[var(--destructive)]">
+                    La cantidad no puede superar el stock actual ({showMovementModal.product.stock} {showMovementModal.product.unit}).
                   </p>
                 )}
               <div className="flex gap-3 pt-2">
@@ -510,12 +542,66 @@ export function InventoryView({ products: initialProducts }: { products: Product
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                  disabled={
+                    showMovementModal.type === "salida" &&
+                    movementQty > showMovementModal.product.stock
+                  }
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Confirmar
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmar eliminar producto */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+            <div className="flex items-center gap-3 rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 p-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--destructive)]/20">
+                <Trash2 className="h-5 w-5 text-[var(--destructive)]" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-[var(--foreground)]">
+                  ¿Eliminar producto?
+                </h3>
+                <p className="text-sm text-[var(--muted)]">
+                  Esta acción no se puede deshacer.
+                </p>
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-[var(--foreground)]">
+              Estás a punto de eliminar <strong className="text-[var(--foreground)]">&quot;{productToDelete.name}&quot;</strong> del inventario. Se borrarán también todos los movimientos y referencias en boletas/facturas asociados a este producto.
+            </p>
+            {deleteError && (
+              <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
+                {deleteError}
+              </p>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setProductToDelete(null);
+                  setDeleteError(null);
+                }}
+                disabled={deleting}
+                className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {deleting ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
           </div>
         </div>
       )}

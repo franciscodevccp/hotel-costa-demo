@@ -125,7 +125,6 @@ pnpm build
 ```bash
 # Iniciar la app con PM2
 pm2 start pnpm --name "hotel-costa" -- start
-
 # Guardar configuración para que arranque automático al reiniciar el servidor
 pm2 startup
 pm2 save
@@ -149,12 +148,13 @@ pm2 stop hotel-costa    # Detener la app
 nano /etc/nginx/sites-available/hotel-costa-demo
 ```
 
-Pegar este contenido:
+Pegar este contenido (o, si ya tienes SSL con Certbot, ver más abajo la sección **Cabeceras de seguridad y CSP en Nginx**):
 
 ```nginx
 server {
     listen 80;
     server_name 187.77.60.110;  # Reemplazar por dominio si tienes uno
+    server_tokens off;  # No exponer versión de Nginx en respuestas
 
     # Límite de tamaño de archivos subidos (fotos de boletas)
     client_max_body_size 30M;
@@ -166,7 +166,10 @@ server {
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        proxy_hide_header X-Powered-By;
     }
 
     # Servir archivos estáticos directamente
@@ -263,7 +266,7 @@ crontab -e
 Cada vez que hagas cambios en el código y quieras actualizar el servidor:
 
 ```bash
-cd /var/www/mihotel
+cd /var/www/hotel-costa-demo
 
 # Traer los últimos cambios
 git pull origin main
@@ -278,8 +281,20 @@ pnpm prisma migrate deploy
 pnpm build
 
 # Reiniciar la app
-pm2 restart mihotel
+pm2 restart hotel-costa
 ```
+
+---
+
+## Cabeceras de seguridad en Nginx (CSP sin duplicados)
+
+En el bloque `server` HTTPS (puerto 443), añadir **solo** la CSP. No añadir X-Frame-Options, X-Content-Type-Options ni Referrer-Policy en Nginx porque la app (proxy.ts) ya los envía; si no, salen duplicados.
+
+```nginx
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+```
+
+> La advertencia sobre `unsafe-inline` y `unsafe-eval` en script-src es habitual en apps Next.js; suelen ser necesarias para que los scripts no se rompan. La CSP sigue protegiendo en otras directivas (frame-ancestors, form-action, etc.).
 
 ---
 
@@ -297,7 +312,7 @@ tail -f /var/log/nginx/error.log
 tail -f /var/log/nginx/access.log
 
 # Ver logs de la app
-pm2 logs mihotel
+pm2 logs hotel-costa
 
 # Reiniciar Nginx
 systemctl restart nginx
@@ -315,9 +330,9 @@ sudo -u postgres psql -d hotelcosta_db
 ## 🗂️ Estructura de carpetas en el servidor
 
 ```
-/var/www/mihotel/          → Proyecto Next.js
-/var/backups/mihotel/      → Backups de la base de datos
-/etc/nginx/sites-available/ → Configuración de Nginx
+/var/www/hotel-costa-demo/   → Proyecto Next.js
+/var/backups/mihotel/       → Backups de la base de datos
+/etc/nginx/sites-available/  → Configuración de Nginx
 ```
 
 ---

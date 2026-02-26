@@ -68,7 +68,7 @@ export function AdminSettingsView({
           Configuración
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Datos del hostal y gestión de trabajadores (demo con datos mock).
+          Datos del hostal y gestión de trabajadores.
         </p>
       </div>
 
@@ -91,7 +91,7 @@ export function AdminSettingsView({
               onChange={(e) =>
                 setEstablishment((p) => ({ ...p, name: e.target.value }))
               }
-              placeholder="Ej. Hostal Demo Concepción"
+              placeholder="Ej. Hostal Concepción"
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
             />
           </div>
@@ -153,7 +153,7 @@ export function AdminSettingsView({
             </button>
             {saveMessage === "ok" && (
               <span className="text-sm text-[var(--success)]">
-                Datos guardados correctamente (demo: solo actualiza la UI).
+                Datos guardados correctamente.
               </span>
             )}
             {saveMessage === "error" && (
@@ -172,7 +172,7 @@ export function AdminSettingsView({
         </h3>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Lista de usuarios del hostal. Puedes cambiar el rol y activar o
-          desactivar cada uno (demo: cambios solo en memoria).
+          desactivar cada uno.
         </p>
         <div className="mt-6 overflow-x-auto rounded-lg border border-[var(--border)]">
           <table className="w-full min-w-[520px] text-left text-sm">
@@ -276,7 +276,7 @@ export function AdminSettingsView({
           </table>
         </div>
         <p className="mt-3 text-xs text-[var(--muted)]">
-          Demo con datos mock: los cambios se reflejan solo en la sesión actual.
+          Los cambios se reflejan en la sesión actual.
         </p>
       </section>
     </div>

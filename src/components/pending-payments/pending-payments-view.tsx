@@ -62,7 +62,7 @@ export function PendingPaymentsView({
           Pagos pendientes
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Empresas (pago en días hábiles) y personas con saldo pendiente (demo).
+          Empresas (pago en días hábiles) y personas con saldo pendiente.
         </p>
       </div>
 

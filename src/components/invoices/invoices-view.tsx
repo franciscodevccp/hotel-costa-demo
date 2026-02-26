@@ -242,7 +242,7 @@ export function InvoicesView({
             Boletas y Facturas
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Gestiona documentos, ingresa fotos y sincroniza con inventario por folio (demo).
+            Gestiona documentos, ingresa fotos y sincroniza con inventario por folio.
           </p>
         </div>
         <button

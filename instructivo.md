@@ -4,7 +4,7 @@
 > **Fecha:** 25 de febrero de 2026  
 > **Desarrollador:** Francisco Dev  
 > **Cliente:** Hotel de la Costa — Talcahuano, Biobío  
-> **Estado actual:** Demo funcional con datos mock → Migrar a producción con base de datos real
+> **Estado actual:** Sistema funcional → Migrar a producción con base de datos real
 
 ---
 
@@ -20,7 +20,7 @@
 8. [Seguridad](#8-seguridad)
 9. [Optimización y Carga Rápida](#9-optimización-y-carga-rápida)
 10. [Infraestructura y Deploy](#10-infraestructura-y-deploy)
-11. [Plan de Migración Demo → Producción](#11-plan-de-migración-demo--producción)
+11. [Plan de Migración a Producción](#11-plan-de-migración-a-producción)
 12. [Variables de Entorno](#12-variables-de-entorno)
 13. [Checklist Final Pre-Entrega](#13-checklist-final-pre-entrega)
 
@@ -61,7 +61,7 @@ Sistema de gestión a medida para Hotel de la Costa. Administra las operaciones 
 
 ## 2. Dependencias — Qué instalar
 
-### 2.1 Estado actual del package.json (demo)
+### 2.1 Estado actual del package.json
 
 Lo que ya está instalado y se mantiene:
 
@@ -650,7 +650,7 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 - `src/app/api/auth/mock-login/route.ts` — endpoint de login mock
 - `src/app/api/auth/mock-logout/route.ts` — endpoint de logout mock
 - Cookie `mock_session` — ya no se usa
-- Array `DEMO_USERS` en login-form.tsx — reemplazar por formulario real
+- Lista de usuarios de prueba en login-form.tsx — reemplazar por formulario real
 
 **Archivos a crear:**
 
@@ -671,7 +671,7 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 ### 5.2 Formulario de login real
 
-Reemplazar la selección de usuario demo por un formulario con campos email y contraseña. Usar `signIn("credentials", ...)` de NextAuth. Mostrar errores si las credenciales son incorrectas. No permitir más de 5 intentos fallidos por IP en 15 minutos (rate limiting).
+Reemplazar la selección de usuario de prueba por un formulario con campos email y contraseña. Usar `signIn("credentials", ...)` de NextAuth. Mostrar errores si las credenciales son incorrectas. No permitir más de 5 intentos fallidos por IP en 15 minutos (rate limiting).
 
 ### 5.3 Protección de rutas por rol
 
@@ -723,7 +723,7 @@ Todas las queries Prisma filtran por `establishmentId` del token. Nunca se conf�
 
 ## 6. Módulos a Implementar
 
-Para cada módulo: qué archivos de la demo modificar, qué datos mock reemplazar, y qué Server Actions crear.
+Para cada módulo: qué archivos modificar, qué datos mock reemplazar, y qué Server Actions crear.
 
 ### 6.1 Dashboard
 
@@ -1310,7 +1310,7 @@ crontab -e
 
 ---
 
-## 11. Plan de Migración Demo → Producción
+## 11. Plan de Migración a Producción
 
 ### Fase 1: Setup base (1-2 días)
 

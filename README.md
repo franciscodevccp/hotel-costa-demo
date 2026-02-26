@@ -1,1 +1,1 @@
-# hotel-costa-demo
+# Hotel de la Costa — Sistema de gestión
