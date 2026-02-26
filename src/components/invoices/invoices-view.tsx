@@ -13,6 +13,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { CustomSelect } from "@/components/ui/custom-select";
 import {
   createInvoice,
   syncInvoiceWithInventory,
@@ -407,18 +408,20 @@ export function InvoicesView({
                   <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
                     Tipo
                   </label>
-                  <select
+                  <CustomSelect
                     value={formType}
-                    onChange={(e) =>
-                      setFormType(e.target.value as "boleta" | "factura" | "guia_despacho" | "cotizacion")
+                    onChange={(v) =>
+                      setFormType(v as "boleta" | "factura" | "guia_despacho" | "cotizacion")
                     }
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                  >
-                    <option value="boleta">Boleta</option>
-                    <option value="factura">Factura</option>
-                    <option value="guia_despacho">Guía de Despacho</option>
-                    <option value="cotizacion">Cotización</option>
-                  </select>
+                    options={[
+                      { value: "boleta", label: "Boleta" },
+                      { value: "factura", label: "Factura" },
+                      { value: "guia_despacho", label: "Guía de Despacho" },
+                      { value: "cotizacion", label: "Cotización" },
+                    ]}
+                    placeholder="Seleccionar tipo"
+                    aria-label="Tipo de documento"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -508,18 +511,18 @@ export function InvoicesView({
                   Productos (vincula con inventario)
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  <select
-                    value={newItemProduct}
-                    onChange={(e) => setNewItemProduct(e.target.value)}
-                    className="min-w-[140px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                  >
-                    <option value="">Seleccionar producto</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.unit})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="min-w-[140px] flex-1">
+                    <CustomSelect
+                      value={newItemProduct}
+                      onChange={setNewItemProduct}
+                      options={products.map((p) => ({
+                        value: p.id,
+                        label: `${p.name} (${p.unit})`,
+                      }))}
+                      placeholder="Seleccionar producto"
+                      aria-label="Seleccionar producto"
+                    />
+                  </div>
                   <input
                     type="number"
                     min={1}

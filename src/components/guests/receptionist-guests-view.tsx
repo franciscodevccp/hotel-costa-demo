@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Mail, Phone, MapPin, Bed, UserPlus, Lock, X, Calendar, Plus } from "lucide-react";
-import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
+import { Search, Mail, Phone, MapPin, Bed, UserPlus, Lock, X, Calendar, Plus, Trash2 } from "lucide-react";
+import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, deleteGuest, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
 
 type GuestRow = Awaited<ReturnType<typeof import("@/lib/queries/guests").getGuests>>[number];
 type GuestWithBlock = GuestRow & { blockReason?: string | null };
@@ -32,6 +32,9 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
   const [blockModalOpen, setBlockModalOpen] = useState(false);
   const [blockReasonInput, setBlockReasonInput] = useState("");
   const [blockError, setBlockError] = useState<string | null>(null);
+  const [guestToDelete, setGuestToDelete] = useState<GuestRow | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [updateState, updateFormAction] = useActionState(updateGuest, {} as UpdateGuestState);
 
   useEffect(() => {
@@ -186,6 +189,15 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
                   >
                     Ver historial
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => { setGuestToDelete(guest); setDeleteError(null); }}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                    title="Eliminar huésped"
+                    aria-label="Eliminar huésped"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
                 {guest.isBlacklisted && (
                   <span className="rounded-full bg-[var(--destructive)]/10 px-2.5 py-1 text-xs font-medium text-[var(--destructive)]">
@@ -294,6 +306,69 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
                   <button type="submit" className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90">Guardar cambios</button>
                 </div>
               </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal confirmar eliminar huésped */}
+      {guestToDelete &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-black/50 p-4"
+            onClick={() => { if (!isDeleting) { setGuestToDelete(null); setDeleteError(null); } }}
+          >
+            <div
+              className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 text-[var(--destructive)]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--destructive)]/10">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Eliminar huésped</h3>
+              </div>
+              <p className="mt-4 text-sm text-[var(--muted)]">
+                ¿Estás seguro de que deseas eliminar a <strong className="text-[var(--foreground)]">{guestToDelete.fullName}</strong>? Esta acción no se puede deshacer.
+              </p>
+              {deleteError && (
+                <p className="mt-3 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                  {deleteError}
+                </p>
+              )}
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => { setGuestToDelete(null); setDeleteError(null); }}
+                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/10 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={async () => {
+                    if (!guestToDelete) return;
+                    setIsDeleting(true);
+                    setDeleteError(null);
+                    const result = await deleteGuest(guestToDelete.id);
+                    if (result?.error) {
+                      setDeleteError(result.error);
+                      setIsDeleting(false);
+                    } else {
+                      setGuestToDelete(null);
+                      setDeleteError(null);
+                      setIsDeleting(false);
+                      router.refresh();
+                    }
+                  }}
+                  className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--destructive)]/90 disabled:opacity-50"
+                >
+                  {isDeleting ? "Eliminando…" : "Eliminar"}
+                </button>
+              </div>
             </div>
           </div>,
           document.body

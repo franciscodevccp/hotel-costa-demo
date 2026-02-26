@@ -142,8 +142,48 @@ export function AdminReservationsView({
       }
     }, [newGuestOpen]);
 
+    // Habitaciones disponibles: si hay fechas, las que no tienen reserva en ese rango; si no hay fechas, las que no están ocupadas hoy
+    const todayStr = format(startOfDay(new Date()), "yyyy-MM-dd");
+    const availableRooms = (() => {
+      const isActiveReservation = (r: ReservationDisplay) =>
+        r.status !== "cancelled" && r.status !== "checked_out";
+      const sameRoom = (room: RoomOption, r: ReservationDisplay) =>
+        String(room.roomNumber) === String(r.room_number);
+
+      if (newCheckIn && newCheckOut) {
+        return rooms.filter((room) => {
+          const hasBlocking = reservations.some(
+            (r) =>
+              isActiveReservation(r) &&
+              sameRoom(room, r) &&
+              r.check_in < newCheckOut! &&
+              r.check_out > newCheckIn!
+          );
+          return !hasBlocking;
+        });
+      }
+      // Sin fechas: ocultar habitaciones ocupadas hoy (para no mostrar Hab. 1 si ya tiene reserva hoy)
+      return rooms.filter((room) => {
+        const occupiedToday = reservations.some(
+          (r) =>
+            isActiveReservation(r) &&
+            sameRoom(room, r) &&
+            r.check_in <= todayStr &&
+            r.check_out > todayStr
+        );
+        return !occupiedToday;
+      });
+    })();
+
     const ROOMS = roomNumbers.length > 0 ? roomNumbers : Array.from(new Set(reservations.map((r) => r.room_number))).sort();
     const selectedRoom = rooms.find((r) => r.id === newRoomId);
+
+    // Si la habitación seleccionada dejó de estar disponible (fechas cambiadas), limpiar selección
+    useEffect(() => {
+      if (newRoomId && !availableRooms.some((r) => r.id === newRoomId)) {
+        setNewRoomId("");
+      }
+    }, [newRoomId, availableRooms]);
     const nights = newCheckIn && newCheckOut ? Math.max(0, differenceInDays(new Date(newCheckOut), new Date(newCheckIn))) : 0;
     const calculatedTotal = selectedRoom ? selectedRoom.pricePerNight * nights : 0;
 
@@ -313,20 +353,19 @@ export function AdminReservationsView({
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Huésped</label>
                         <div className="flex gap-2">
-                          <select
-                            name="guestId"
-                            required
-                            value={newGuestId}
-                            onChange={(e) => setNewGuestId(e.target.value)}
-                            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                          >
-                            <option value="">Seleccionar huésped</option>
-                            {localGuests.map((g) => (
-                              <option key={g.id} value={g.id}>
-                                {g.fullName} {g.email ? `(${g.email})` : ""}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex-1 min-w-0">
+                            <CustomSelect
+                              value={newGuestId}
+                              onChange={setNewGuestId}
+                              options={localGuests.map((g) => ({
+                                value: g.id,
+                                label: g.fullName + (g.email ? ` (${g.email})` : ""),
+                              }))}
+                              placeholder="Seleccionar huésped"
+                              aria-label="Seleccionar huésped"
+                            />
+                            <input type="hidden" name="guestId" value={newGuestId} />
+                          </div>
                           <button
                             type="button"
                             onClick={() => setNewGuestOpen(true)}
@@ -343,20 +382,30 @@ export function AdminReservationsView({
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Habitación</label>
-                        <select
-                          name="roomId"
-                          required
+                        <CustomSelect
                           value={newRoomId}
-                          onChange={(e) => setNewRoomId(e.target.value)}
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                        >
-                          <option value="">Seleccionar habitación</option>
-                          {rooms.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              Hab. {r.roomNumber} – ${r.pricePerNight.toLocaleString("es-CL")}/noche
-                            </option>
-                          ))}
-                        </select>
+                          onChange={setNewRoomId}
+                          options={availableRooms.map((r) => ({
+                            value: r.id,
+                            label: `Hab. ${r.roomNumber} – ${r.pricePerNight.toLocaleString("es-CL")}/noche`,
+                          }))}
+                          placeholder="Seleccionar habitación"
+                          className="w-full"
+                          aria-label="Seleccionar habitación"
+                        />
+                        <input type="hidden" name="roomId" value={newRoomId} />
+                        {newCheckIn && newCheckOut && (
+                          <p className="mt-1.5 text-xs text-[var(--muted)]">
+                            {availableRooms.length === 0
+                              ? "No hay habitaciones disponibles para estas fechas. Las ocupadas no se muestran aquí."
+                              : `${availableRooms.length} habitación${availableRooms.length !== 1 ? "es" : ""} disponible${availableRooms.length !== 1 ? "s" : ""} para las fechas elegidas.`}
+                          </p>
+                        )}
+                        {(!newCheckIn || !newCheckOut) && (
+                          <p className="mt-1.5 text-xs text-[var(--muted)]">
+                            Se muestran solo habitaciones no ocupadas hoy. Elige check-in y check-out para filtrar por esas fechas.
+                          </p>
+                        )}
                       </div>
                       <input type="hidden" name="checkIn" value={newCheckIn} />
                       <input type="hidden" name="checkOut" value={newCheckOut} />
@@ -384,18 +433,17 @@ export function AdminReservationsView({
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nº huéspedes</label>
-                        <select
-                          name="numGuests"
-                          value={newNumGuests}
-                          onChange={(e) => setNewNumGuests(parseInt(e.target.value, 10))}
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                        >
-                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                            <option key={n} value={n}>
-                              {n} {n === 1 ? "persona" : "personas"}
-                            </option>
-                          ))}
-                        </select>
+                        <CustomSelect
+                          value={String(newNumGuests)}
+                          onChange={(v) => setNewNumGuests(parseInt(v, 10))}
+                          options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
+                            value: String(n),
+                            label: n === 1 ? "1 persona" : `${n} personas`,
+                          }))}
+                          placeholder="Seleccionar"
+                          aria-label="Número de huéspedes"
+                        />
+                        <input type="hidden" name="numGuests" value={newNumGuests} />
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Total (CLP)</label>
@@ -422,18 +470,20 @@ export function AdminReservationsView({
                         />
                         <div className="mt-2">
                           <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Método de pago</label>
-                          <select
-                            name="downPaymentMethod"
+                          <CustomSelect
                             value={newDownPaymentMethod}
-                            onChange={(e) => setNewDownPaymentMethod(e.target.value as "CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER")}
-                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                          >
-                            <option value="CASH">Efectivo</option>
-                            <option value="TRANSFER">Transferencia</option>
-                            <option value="DEBIT">Débito</option>
-                            <option value="CREDIT">Crédito</option>
-                            <option value="OTHER">Otro</option>
-                          </select>
+                            onChange={(v) => setNewDownPaymentMethod(v as "CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER")}
+                            options={[
+                              { value: "CASH", label: "Efectivo" },
+                              { value: "TRANSFER", label: "Transferencia" },
+                              { value: "DEBIT", label: "Débito" },
+                              { value: "CREDIT", label: "Crédito" },
+                              { value: "OTHER", label: "Otro" },
+                            ]}
+                            placeholder="Seleccionar método"
+                            aria-label="Método de pago"
+                          />
+                          <input type="hidden" name="downPaymentMethod" value={newDownPaymentMethod} />
                         </div>
                         {newTotalAmount > 0 && (
                           <p className="mt-1.5 text-xs text-[var(--muted)]">

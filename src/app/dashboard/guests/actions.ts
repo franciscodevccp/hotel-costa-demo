@@ -179,3 +179,29 @@ export async function setGuestUnblocked(guestId: string): Promise<UpdateGuestSta
     return { error: e instanceof Error ? e.message : "Error al desbloquear" };
   }
 }
+
+export type DeleteGuestState = { error?: string; success?: boolean };
+
+export async function deleteGuest(guestId: string): Promise<DeleteGuestState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) return { error: "No autorizado" };
+
+  const count = await prisma.reservation.count({
+    where: { guestId, establishmentId: session.user.establishmentId },
+  });
+  if (count > 0) {
+    return { error: "No se puede eliminar: el huésped tiene reservas asociadas." };
+  }
+
+  try {
+    const deleted = await prisma.guest.deleteMany({
+      where: { id: guestId, establishmentId: session.user.establishmentId },
+    });
+    if (deleted.count === 0) return { error: "Huésped no encontrado" };
+    revalidatePath("/dashboard/guests");
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Error al eliminar el huésped" };
+  }
+}

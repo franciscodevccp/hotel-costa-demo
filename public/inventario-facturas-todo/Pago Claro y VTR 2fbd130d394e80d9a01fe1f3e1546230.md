@@ -1,1 +1,0 @@
-# Pago Claro y VTR

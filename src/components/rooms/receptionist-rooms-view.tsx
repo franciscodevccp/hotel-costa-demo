@@ -37,7 +37,7 @@ export function ReceptionistRoomsView({ rooms }: { rooms: Room[] }) {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">Habitaciones</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">Consulta disponibilidad y asigna habitaciones</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">Consulta disponibilidad y estado de habitaciones</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -87,9 +87,6 @@ export function ReceptionistRoomsView({ rooms }: { rooms: Room[] }) {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium text-[var(--foreground)]">{formatCLP(room.pricePerNight)}</p>
-                    <button className="mt-1 text-sm font-medium text-[var(--success)] transition-colors hover:underline">
-                      Asignar
-                    </button>
                   </div>
                 </div>
               </div>
