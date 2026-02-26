@@ -230,9 +230,6 @@ export async function syncMotopressReservations(): Promise<SyncMotopressState> {
   if (!session?.user?.establishmentId) {
     return { success: false, error: "No autorizado" };
   }
-  if (session.user.role !== "ADMIN") {
-    return { success: false, error: "Solo administradores pueden sincronizar" };
-  }
   try {
     const result = await syncMotopressBookings();
     if (!result.success) {
