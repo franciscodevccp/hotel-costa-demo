@@ -1,6 +1,8 @@
+import { unstable_noStore } from "next/cache";
 import { prisma } from "@/lib/db";
 
 export async function getProducts(establishmentId: string) {
+  unstable_noStore();
   const rows = await prisma.inventoryProduct.findMany({
     where: { establishmentId },
     select: {
