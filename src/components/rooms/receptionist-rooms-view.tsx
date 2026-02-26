@@ -8,6 +8,7 @@ const ROOM_TYPE_LABELS: Record<string, string> = {
   DOUBLE: "Doble",
   TRIPLE: "Triple",
   QUADRUPLE: "Cuádruple",
+  QUINTUPLE: "Quintuple",
   PROMOTIONAL: "Promocional",
 };
 

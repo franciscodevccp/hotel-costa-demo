@@ -8,7 +8,7 @@ export async function getRooms(establishmentId: string, status?: string) {
   if (status && status !== "" && ROOM_STATUSES.includes(status as (typeof ROOM_STATUSES)[number])) {
     where.status = status as (typeof ROOM_STATUSES)[number];
   }
-  return prisma.room.findMany({
+  const rooms = await prisma.room.findMany({
     where,
     select: {
       id: true,
@@ -20,6 +20,12 @@ export async function getRooms(establishmentId: string, status?: string) {
       hasPrivateBath: true,
       maxGuests: true,
     },
-    orderBy: { roomNumber: "asc" },
+  });
+  // Orden numérico: 1, 2, 3, … 10, 11, … 22 (no 1, 10, 11, 2, 20…)
+  return rooms.sort((a, b) => {
+    const na = Number(a.roomNumber);
+    const nb = Number(b.roomNumber);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true });
   });
 }

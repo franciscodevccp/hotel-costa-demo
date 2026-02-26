@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
-const ROOM_TYPES = ["SINGLE", "DOUBLE", "TRIPLE", "QUADRUPLE", "PROMOTIONAL"] as const;
+const ROOM_TYPES = ["SINGLE", "DOUBLE", "TRIPLE", "QUADRUPLE", "QUINTUPLE", "PROMOTIONAL"] as const;
 const ROOM_STATUSES = ["AVAILABLE", "OCCUPIED", "CLEANING", "MAINTENANCE"] as const;
 
 export type CreateRoomState = {

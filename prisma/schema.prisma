@@ -72,6 +72,7 @@ model Room {
   maxGuests       Int        @default(2)
   description     String?
   notes           String?
+  externalId      String?     // ID en MotoPress (accommodation) para sincronización
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -80,6 +81,7 @@ model Room {
 
   @@unique([establishmentId, roomNumber])
   @@index([establishmentId, status])
+  @@index([externalId])
 }
 
 enum RoomType {
@@ -87,6 +89,7 @@ enum RoomType {
   DOUBLE
   TRIPLE
   QUADRUPLE
+  QUINTUPLE
   PROMOTIONAL
 }
 
@@ -138,6 +141,7 @@ model Reservation {
   companyEmail    String?
   paymentTermDays Int?
   notes           String?
+  syncedAt        DateTime?         // Última sincronización desde MotoPress
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -316,4 +320,18 @@ model ActivityLog {
   @@index([establishmentId, createdAt])
   @@index([userId])
   @@index([entityType, entityId])
+}
+
+// ─── SyncLog (MotoPress / integraciones) ────────────────────────────────────
+model SyncLog {
+  id                 Int      @id @default(autoincrement())
+  source             String   // "motopress"
+  status             String   // "success" | "error"
+  message            String?
+  reservationsFound  Int      @default(0)
+  reservationsCreated Int     @default(0)
+  reservationsSkipped Int     @default(0)
+  createdAt          DateTime @default(now())
+
+  @@index([source, createdAt])
 }

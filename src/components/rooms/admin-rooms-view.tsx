@@ -12,6 +12,7 @@ const ROOM_TYPE_LABELS: Record<string, string> = {
   DOUBLE: "Doble",
   TRIPLE: "Triple",
   QUADRUPLE: "Cuádruple",
+  QUINTUPLE: "Quintuple",
   PROMOTIONAL: "Promocional",
 };
 
@@ -34,6 +35,7 @@ const ROOM_TYPE_OPTIONS = [
   { value: "DOUBLE", label: "Doble" },
   { value: "TRIPLE", label: "Triple" },
   { value: "QUADRUPLE", label: "Cuádruple" },
+  { value: "QUINTUPLE", label: "Quintuple" },
   { value: "PROMOTIONAL", label: "Promocional" },
 ];
 

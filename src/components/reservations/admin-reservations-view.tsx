@@ -10,6 +10,7 @@ import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay,
 import { es } from "date-fns/locale";
 import { createReservation, updateReservationStatus, deleteReservation, type CreateReservationState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
+import { SyncMotopressButton } from "./sync-motopress-button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 
 export interface ReservationDisplay {
@@ -239,14 +240,17 @@ export function AdminReservationsView({
                         {activeTab === "resumen" ? "Administra todas las reservas del establecimiento" : "Calendario de disponibilidad habitación por habitación y valores por noche"}
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => setNewReservationOpen(true)}
-                    className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Nueva Reserva
-                  </button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <SyncMotopressButton />
+                    <button
+                        type="button"
+                        onClick={() => setNewReservationOpen(true)}
+                        className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto"
+                    >
+                        <Plus className="h-4 w-4" />
+                        Nueva Reserva
+                    </button>
+                </div>
             </div>
 
             {/* Modal Nueva Reserva */}

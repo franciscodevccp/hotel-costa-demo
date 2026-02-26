@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { syncMotopressBookings } from "@/lib/motopress-sync";
 
 export type CreateReservationState = { error?: string; success?: boolean };
 
@@ -164,5 +165,35 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al eliminar la reserva";
     return { error: message };
+  }
+}
+
+export type SyncMotopressState =
+  | { success: true; reservationsFound: number; reservationsCreated: number; reservationsSkipped: number }
+  | { success: false; error: string };
+
+export async function syncMotopressReservations(): Promise<SyncMotopressState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { success: false, error: "No autorizado" };
+  }
+  if (session.user.role !== "ADMIN") {
+    return { success: false, error: "Solo administradores pueden sincronizar" };
+  }
+  try {
+    const result = await syncMotopressBookings();
+    if (!result.success) {
+      return { success: false, error: result.error ?? "Error en la sincronización" };
+    }
+    revalidatePath("/dashboard/reservations");
+    return {
+      success: true,
+      reservationsFound: result.reservationsFound,
+      reservationsCreated: result.reservationsCreated,
+      reservationsSkipped: result.reservationsSkipped,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al sincronizar con MotoPress";
+    return { success: false, error: message };
   }
 }

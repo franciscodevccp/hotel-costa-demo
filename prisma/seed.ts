@@ -56,42 +56,56 @@ async function main() {
   });
   console.log("✅ Users: admin + recepcionista (password:", DEFAULT_PASSWORD + ")");
 
-  // ─── 3. Rooms — 22 habitaciones (tipos y tarifas según instructivo) ─────
+  // ─── 3. Rooms — 22 habitaciones reales (MotoPress / WordPress) ─────────
+  // Eliminar habitaciones viejas (101, 102, 201, 301, 401, etc.) que ya no usamos
+  const validRoomNumbers = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22"];
+  const oldRooms = await prisma.room.findMany({
+    where: {
+      establishmentId: establishment.id,
+      roomNumber: { notIn: validRoomNumbers },
+    },
+    select: { id: true },
+  });
+  const oldRoomIds = oldRooms.map((r) => r.id);
+  if (oldRoomIds.length > 0) {
+    await prisma.payment.deleteMany({ where: { reservation: { roomId: { in: oldRoomIds } } } });
+    await prisma.reservation.deleteMany({ where: { roomId: { in: oldRoomIds } } });
+    await prisma.room.deleteMany({ where: { id: { in: oldRoomIds } } });
+    console.log("✅ Habitaciones antiguas eliminadas:", oldRoomIds.length);
+  }
+
+  // externalId = ID de la acomodación en MotoPress para sincronizar reservas
   const roomData: Array<{
     roomNumber: string;
-    type: "SINGLE" | "DOUBLE" | "TRIPLE" | "QUADRUPLE" | "PROMOTIONAL";
+    type: "SINGLE" | "DOUBLE" | "TRIPLE" | "QUADRUPLE" | "QUINTUPLE" | "PROMOTIONAL";
     pricePerNight: number;
     floor: number;
     hasPrivateBath: boolean;
     maxGuests: number;
+    externalId: string;
   }> = [
-    // Single $40.000 — 4 habitaciones
-    { roomNumber: "101", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1 },
-    { roomNumber: "102", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1 },
-    { roomNumber: "103", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1 },
-    { roomNumber: "104", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1 },
-    // Double $60.000 — 6 habitaciones
-    { roomNumber: "201", type: "DOUBLE", pricePerNight: 60_000, floor: 2, hasPrivateBath: true, maxGuests: 2 },
-    { roomNumber: "202", type: "DOUBLE", pricePerNight: 60_000, floor: 2, hasPrivateBath: true, maxGuests: 2 },
-    { roomNumber: "203", type: "DOUBLE", pricePerNight: 60_000, floor: 2, hasPrivateBath: true, maxGuests: 2 },
-    { roomNumber: "204", type: "DOUBLE", pricePerNight: 60_000, floor: 2, hasPrivateBath: true, maxGuests: 2 },
-    { roomNumber: "205", type: "DOUBLE", pricePerNight: 60_000, floor: 2, hasPrivateBath: true, maxGuests: 2 },
-    { roomNumber: "206", type: "DOUBLE", pricePerNight: 60_000, floor: 2, hasPrivateBath: true, maxGuests: 2 },
-    // Triple $90.000 — 4 habitaciones
-    { roomNumber: "301", type: "TRIPLE", pricePerNight: 90_000, floor: 3, hasPrivateBath: true, maxGuests: 3 },
-    { roomNumber: "302", type: "TRIPLE", pricePerNight: 90_000, floor: 3, hasPrivateBath: true, maxGuests: 3 },
-    { roomNumber: "303", type: "TRIPLE", pricePerNight: 90_000, floor: 3, hasPrivateBath: true, maxGuests: 3 },
-    { roomNumber: "304", type: "TRIPLE", pricePerNight: 90_000, floor: 3, hasPrivateBath: true, maxGuests: 3 },
-    // Cuádruple $120.000 — 4 habitaciones
-    { roomNumber: "401", type: "QUADRUPLE", pricePerNight: 120_000, floor: 4, hasPrivateBath: true, maxGuests: 4 },
-    { roomNumber: "402", type: "QUADRUPLE", pricePerNight: 120_000, floor: 4, hasPrivateBath: true, maxGuests: 4 },
-    { roomNumber: "403", type: "QUADRUPLE", pricePerNight: 120_000, floor: 4, hasPrivateBath: true, maxGuests: 4 },
-    { roomNumber: "404", type: "QUADRUPLE", pricePerNight: 120_000, floor: 4, hasPrivateBath: true, maxGuests: 4 },
-    // Promocional $25.000 p/p, baño compartido, 2-5 personas — 4 habitaciones
-    { roomNumber: "501", type: "PROMOTIONAL", pricePerNight: 25_000, floor: 5, hasPrivateBath: false, maxGuests: 5 },
-    { roomNumber: "502", type: "PROMOTIONAL", pricePerNight: 25_000, floor: 5, hasPrivateBath: false, maxGuests: 5 },
-    { roomNumber: "503", type: "PROMOTIONAL", pricePerNight: 25_000, floor: 5, hasPrivateBath: false, maxGuests: 5 },
-    { roomNumber: "504", type: "PROMOTIONAL", pricePerNight: 25_000, floor: 5, hasPrivateBath: false, maxGuests: 5 },
+    { roomNumber: "1", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "401" },
+    { roomNumber: "2", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "39" },
+    { roomNumber: "3", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "42" },
+    { roomNumber: "4", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "259" },
+    { roomNumber: "5", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "45" },
+    { roomNumber: "6", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "262" },
+    { roomNumber: "7", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "48" },
+    { roomNumber: "8", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "51" },
+    { roomNumber: "9", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "265" },
+    { roomNumber: "10", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "272" },
+    { roomNumber: "11", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "275" },
+    { roomNumber: "12", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "279" },
+    { roomNumber: "13", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "282" },
+    { roomNumber: "14", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "289" },
+    { roomNumber: "15", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "286" },
+    { roomNumber: "16", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "292" },
+    { roomNumber: "17", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "295" },
+    { roomNumber: "18", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "421" },
+    { roomNumber: "19", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "392" },
+    { roomNumber: "20", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "404" },
+    { roomNumber: "21", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "409" },
+    { roomNumber: "22", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "418" },
   ];
 
   for (const r of roomData) {
@@ -99,14 +113,14 @@ async function main() {
       where: {
         establishmentId_roomNumber: { establishmentId: establishment.id, roomNumber: r.roomNumber },
       },
-      update: {},
+      update: { type: r.type, maxGuests: r.maxGuests, externalId: r.externalId, pricePerNight: r.pricePerNight },
       create: {
         establishmentId: establishment.id,
         ...r,
       },
     });
   }
-  console.log("✅ Rooms: 22 habitaciones creadas");
+  console.log("✅ Rooms: 22 habitaciones (MotoPress externalId asignados)");
 
   // ─── 4. Suppliers — 7 proveedores ───────────────────────────────────────
   const supplierNames = [
@@ -199,6 +213,13 @@ async function main() {
     ],
   };
 
+  // Eliminar en orden: ítems de facturas y movimientos referencian a productos
+  await prisma.invoiceItem.deleteMany({
+    where: { invoice: { establishmentId: establishment.id } },
+  });
+  await prisma.inventoryMovement.deleteMany({
+    where: { product: { establishmentId: establishment.id } },
+  });
   await prisma.inventoryProduct.deleteMany({ where: { establishmentId: establishment.id } });
   let count = 0;
   for (const [category, items] of Object.entries(productCategories)) {
