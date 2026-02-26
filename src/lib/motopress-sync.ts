@@ -64,6 +64,12 @@ function mapStatus(mpStatus: string): ReservationStatus {
   return statusMap[mpStatus?.toLowerCase()] ?? "PENDING";
 }
 
+/** Parsea "YYYY-MM-DD" como día local (evita desfase por medianoche UTC). */
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 async function getEstablishmentId(): Promise<string> {
   const fromEnv = process.env.MOTOPRESS_ESTABLISHMENT_ID;
   if (fromEnv) return fromEnv;
@@ -91,17 +97,17 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
     reservationsFound = mpBookings.length;
 
     for (const mp of mpBookings) {
-      const motopressId = String(mp.id);
-
+      const motopressIdStr = String(mp.id);
+      // Evitar duplicados: ya existe si la reserva vino de la web O si la creamos nosotros y la enviamos (push)
       const existing = await prisma.reservation.findUnique({
-        where: { motopressId },
+        where: { motopressId: motopressIdStr },
       });
 
       if (existing) {
         const newStatus = mapStatus(mp.status);
         if (existing.status !== newStatus) {
           await prisma.reservation.update({
-            where: { motopressId },
+            where: { motopressId: motopressIdStr },
             data: { status: newStatus, syncedAt: new Date() },
           });
         }
@@ -152,13 +158,13 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
           establishmentId,
           roomId: room.id,
           guestId: guest.id,
-          checkIn: new Date(mp.check_in_date),
-          checkOut: new Date(mp.check_out_date),
+          checkIn: parseLocalDate(mp.check_in_date),
+          checkOut: parseLocalDate(mp.check_out_date),
           numGuests,
           totalAmount,
           status: mapStatus(mp.status),
           source: "MOTOPRESS",
-          motopressId,
+          motopressId: motopressIdStr,
           notes: mp.note ?? null,
           syncedAt: new Date(),
         },

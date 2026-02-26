@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncMotopressBookings } from "@/lib/motopress-sync";
+import { pushBookingToMotopress, cancelBookingInMotopress } from "@/lib/motopress-push";
 
 export type CreateReservationState = { error?: string; success?: boolean };
 
@@ -36,18 +37,18 @@ export async function createReservation(
   if (!checkInStr) return { error: "La fecha de check-in es obligatoria" };
   if (!checkOutStr) return { error: "La fecha de check-out es obligatoria" };
 
-  const checkIn = new Date(checkInStr);
-  const checkOut = new Date(checkOutStr);
+  // Parsear como día local (evitar que "2026-02-26" se interprete como medianoche UTC = 25 feb en Chile)
+  const [yIn, mIn, dIn] = checkInStr.split("-").map(Number);
+  const [yOut, mOut, dOut] = checkOutStr.split("-").map(Number);
+  const checkIn = new Date(yIn, mIn - 1, dIn);
+  const checkOut = new Date(yOut, mOut - 1, dOut);
   if (Number.isNaN(checkIn.getTime())) return { error: "Fecha de check-in no válida" };
   if (Number.isNaN(checkOut.getTime())) return { error: "Fecha de check-out no válida" };
   if (checkIn >= checkOut) return { error: "El check-out debe ser posterior al check-in" };
 
-  // Comparar solo día civil (evitar error por UTC: "2026-02-25" es medianoche UTC = 24 feb en Chile)
-  const [y, m, d] = checkInStr.split("-").map(Number);
-  const checkInDateOnly = new Date(y, m - 1, d);
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  if (checkInDateOnly < todayStart) return { error: "El check-in no puede ser una fecha anterior a hoy" };
+  if (checkIn < todayStart) return { error: "El check-in no puede ser una fecha anterior a hoy" };
 
   const numGuests = numGuestsStr ? parseInt(numGuestsStr, 10) : 1;
   if (Number.isNaN(numGuests) || numGuests < 1) return { error: "Número de huéspedes debe ser al menos 1" };
@@ -92,6 +93,39 @@ export async function createReservation(
       });
     }
 
+    // Enviar a MotoPress para bloquear fechas en la web (no fallar la creación si el push falla)
+    try {
+      const [room, guest] = await Promise.all([
+        prisma.room.findUnique({ where: { id: roomId }, select: { externalId: true } }),
+        prisma.guest.findUnique({ where: { id: guestId }, select: { fullName: true, email: true, phone: true } }),
+      ]);
+      if (room?.externalId && guest?.email) {
+        const parts = (guest.fullName || "Huésped").trim().split(/\s+/);
+        const guestFirstName = parts[0] ?? "Huésped";
+        const guestLastName = parts.slice(1).join(" ") || guestFirstName;
+        const motopressId = await pushBookingToMotopress({
+          accommodationExternalId: room.externalId,
+          checkIn,
+          checkOut,
+          adults: numGuests,
+          children: 0,
+          guestFirstName,
+          guestLastName,
+          guestEmail: guest.email,
+          guestPhone: guest.phone ?? undefined,
+          note: notes ?? undefined,
+        });
+        if (motopressId) {
+          await prisma.reservation.update({
+            where: { id: reservation.id },
+            data: { motopressId, syncedAt: new Date() },
+          });
+        }
+      }
+    } catch (_) {
+      // La reserva ya se creó; si falla el push a la web no bloqueamos ni duplicamos
+    }
+
     revalidatePath("/dashboard/reservations");
     revalidatePath("/dashboard/pending-payments");
     revalidatePath("/dashboard/payments");
@@ -119,6 +153,15 @@ export async function updateReservationStatus(
   }
 
   try {
+    if (status === "CANCELLED") {
+      const reservation = await prisma.reservation.findFirst({
+        where: { id: reservationId, establishmentId: session.user.establishmentId },
+        select: { motopressId: true },
+      });
+      if (reservation?.motopressId) {
+        await cancelBookingInMotopress(reservation.motopressId);
+      }
+    }
     const updated = await prisma.reservation.updateMany({
       where: {
         id: reservationId,
@@ -146,6 +189,13 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
   }
 
   try {
+    const reservation = await prisma.reservation.findFirst({
+      where: { id: reservationId, establishmentId: session.user.establishmentId },
+      select: { motopressId: true },
+    });
+    if (reservation?.motopressId) {
+      await cancelBookingInMotopress(reservation.motopressId);
+    }
     await prisma.$transaction(async (tx) => {
       await tx.payment.deleteMany({ where: { reservationId } });
       const deleted = await tx.reservation.deleteMany({

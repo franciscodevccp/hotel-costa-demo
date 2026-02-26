@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, useFormStatus } from "react-dom";
 import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
-import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, parseISO, isSameDay, addDays, differenceInDays } from "date-fns";
+import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { createReservation, updateReservationStatus, deleteReservation, type CreateReservationState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
@@ -60,6 +60,19 @@ function formatChileanRut(value: string): string {
 
 const initialReservationState: CreateReservationState = {};
 const initialGuestState: CreateGuestState = {};
+
+function CrearReservaSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+    >
+      {pending ? "Creando…" : "Crear reserva"}
+    </button>
+  );
+}
 
 export function AdminReservationsView({
   reservations,
@@ -185,33 +198,44 @@ export function AdminReservationsView({
         }).format(amount);
     };
 
+    const parseLocalDateStr = (dateStr: string) => {
+        const [y, m, d] = (dateStr || "").split("-").map(Number);
+        return Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d) ? null : new Date(y, m - 1, d);
+    };
     const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('es-CL', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-        });
+        const d = parseLocalDateStr(dateString);
+        return d ? d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" }) : dateString;
     };
 
-    // Calendario: obtener reserva que incluye un día para una habitación
+    // Calendario: obtener reserva que incluye un día para una habitación (usar día local para evitar UTC)
     const getReservationForDay = (roomNumber: string, day: Date) => {
         return reservations.find((r) => {
             if (r.room_number !== roomNumber || r.status === "cancelled") return false;
-            const start = parseISO(r.check_in);
-            const end = parseISO(r.check_out);
+            const start = parseLocalDateStr(r.check_in);
+            const end = parseLocalDateStr(r.check_out);
+            if (!start || !end) return false;
             return isWithinInterval(day, { start, end }) && !isSameDay(day, end);
         });
     };
 
     const isStartOfReservation = (roomNumber: string, day: Date) => {
-        return reservations.some((r) => r.room_number === roomNumber && r.status !== "cancelled" && isSameDay(parseISO(r.check_in), day));
+        return reservations.some((r) => {
+            if (r.room_number !== roomNumber || r.status === "cancelled") return false;
+            const start = parseLocalDateStr(r.check_in);
+            return start ? isSameDay(start, day) : false;
+        });
     };
 
     const getReservationSpan = (roomNumber: string, day: Date) => {
-        const r = reservations.find((r) => r.room_number === roomNumber && r.status !== "cancelled" && isSameDay(parseISO(r.check_in), day));
+        const r = reservations.find((r) => {
+            if (r.room_number !== roomNumber || r.status === "cancelled") return false;
+            const start = parseLocalDateStr(r.check_in);
+            return start ? isSameDay(start, day) : false;
+        });
         if (!r) return 0;
-        const start = parseISO(r.check_in);
-        const end = parseISO(r.check_out);
+        const start = parseLocalDateStr(r.check_in);
+        const end = parseLocalDateStr(r.check_out);
+        if (!start || !end) return 0;
         if (!isWithinInterval(day, { start, end }) || isSameDay(day, end)) return 0;
         const monthStart = startOfMonth(calendarDate);
         const monthEnd = addDays(startOfMonth(calendarDate), getDaysInMonth(calendarDate) - 1);
@@ -432,12 +456,7 @@ export function AdminReservationsView({
                         >
                           Cancelar
                         </button>
-                        <button
-                          type="submit"
-                          className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-                        >
-                          Crear reserva
-                        </button>
+                        <CrearReservaSubmitButton />
                       </div>
                     </form>
                   </div>
