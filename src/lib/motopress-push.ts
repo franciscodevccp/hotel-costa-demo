@@ -15,7 +15,7 @@ function getAuthHeader(): string {
 }
 
 export interface PushBookingParams {
-  accommodationExternalId: string; // ID de la habitación en WordPress (externalId del Room)
+  accommodationExternalId: string; // ID de la **unidad** de alojamiento en MotoPress (Room.externalId debe ser el ID de unidad, no el de tipo)
   checkIn: Date;
   checkOut: Date;
   adults: number;

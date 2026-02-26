@@ -115,13 +115,18 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
       }
 
       const firstAcc = mp.reserved_accommodations[0];
-      // MotoPress envía accommodation (instancia) y accommodation_type (tipo); nuestro seed usa el ID del tipo
-      const externalIdToMatch = firstAcc?.accommodation_type ?? firstAcc?.accommodation;
-      const room = externalIdToMatch
-        ? await prisma.room.findFirst({
-            where: { establishmentId, externalId: String(externalIdToMatch) },
-          })
-        : null;
+      // MotoPress: accommodation = ID unidad (habitación concreta), accommodation_type = ID tipo. Push requiere unidad; sync puede matchear por uno u otro.
+      const unitId = firstAcc?.accommodation;
+      const typeId = firstAcc?.accommodation_type;
+      const room =
+        unitId || typeId
+          ? await prisma.room.findFirst({
+              where: {
+                establishmentId,
+                externalId: { in: [String(unitId), String(typeId)].filter(Boolean) },
+              },
+            })
+          : null;
 
       if (!room) {
         reservationsSkipped++;

@@ -74,7 +74,7 @@ async function main() {
     console.log("✅ Habitaciones antiguas eliminadas:", oldRoomIds.length);
   }
 
-  // externalId = ID de la acomodación en MotoPress para sincronizar reservas
+  // externalId = ID de la UNIDAD de alojamiento en MotoPress (habitación concreta). Para crear reservas por API hace falta el ID de unidad, no el de tipo. Listar con: GET /wp-json/mphb/v1/accommodations
   const roomData: Array<{
     roomNumber: string;
     type: "SINGLE" | "DOUBLE" | "TRIPLE" | "QUADRUPLE" | "QUINTUPLE" | "PROMOTIONAL";
@@ -84,28 +84,29 @@ async function main() {
     maxGuests: number;
     externalId: string;
   }> = [
-    { roomNumber: "1", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "401" },
-    { roomNumber: "2", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "39" },
-    { roomNumber: "3", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "42" },
-    { roomNumber: "4", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "259" },
-    { roomNumber: "5", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "45" },
-    { roomNumber: "6", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "262" },
-    { roomNumber: "7", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "48" },
-    { roomNumber: "8", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "51" },
-    { roomNumber: "9", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "265" },
-    { roomNumber: "10", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "272" },
-    { roomNumber: "11", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "275" },
-    { roomNumber: "12", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "279" },
-    { roomNumber: "13", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "282" },
-    { roomNumber: "14", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "289" },
-    { roomNumber: "15", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "286" },
-    { roomNumber: "16", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "292" },
-    { roomNumber: "17", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "295" },
-    { roomNumber: "18", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "421" },
-    { roomNumber: "19", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "392" },
-    { roomNumber: "20", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "404" },
-    { roomNumber: "21", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "409" },
-    { roomNumber: "22", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "418" },
+    // externalId = ID de unidad en MotoPress (GET /wp-json/mphb/v1/accommodations)
+    { roomNumber: "1", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "402" },
+    { roomNumber: "2", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "40" },
+    { roomNumber: "3", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "43" },
+    { roomNumber: "4", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "260" },
+    { roomNumber: "5", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "46" },
+    { roomNumber: "6", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "263" },
+    { roomNumber: "7", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "49" },
+    { roomNumber: "8", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "52" },
+    { roomNumber: "9", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "266" },
+    { roomNumber: "10", type: "SINGLE", pricePerNight: 40_000, floor: 1, hasPrivateBath: true, maxGuests: 1, externalId: "273" },
+    { roomNumber: "11", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "280" },
+    { roomNumber: "12", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "276" },
+    { roomNumber: "13", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "283" },
+    { roomNumber: "14", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "290" },
+    { roomNumber: "15", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "287" },
+    { roomNumber: "16", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "293" },
+    { roomNumber: "17", type: "TRIPLE", pricePerNight: 90_000, floor: 1, hasPrivateBath: true, maxGuests: 3, externalId: "296" },
+    { roomNumber: "18", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "422" },
+    { roomNumber: "19", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "393" },
+    { roomNumber: "20", type: "QUADRUPLE", pricePerNight: 120_000, floor: 1, hasPrivateBath: true, maxGuests: 4, externalId: "405" },
+    { roomNumber: "21", type: "QUINTUPLE", pricePerNight: 150_000, floor: 1, hasPrivateBath: true, maxGuests: 5, externalId: "410" },
+    { roomNumber: "22", type: "DOUBLE", pricePerNight: 60_000, floor: 1, hasPrivateBath: true, maxGuests: 2, externalId: "419" },
   ];
 
   for (const r of roomData) {
