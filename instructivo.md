@@ -371,6 +371,24 @@ pnpm build
 pm2 restart mihotel
 ```
 
+**Para hotel-costa-demo en el VPS** (mismo flujo, nombre de app puede ser `hotel-costa`):
+
+```bash
+cd /var/www/hotel-costa-demo
+git pull
+pnpm install
+pnpm prisma migrate deploy
+pnpm build                    # obligatorio: sin esto, next start falla con "Could not find a production build"
+npx prisma db seed            # actualiza Room.externalId con IDs de unidad de MotoPress (para que el push funcione)
+pm2 restart all
+```
+
+En el `.env` del servidor debe estar `NEXTAUTH_URL=https://sistema.hoteldelacosta.cl`. Si Auth.js sigue mostrando "UntrustedHost", añadir:
+
+```env
+AUTH_TRUST_HOST=true
+```
+
 ---
 
 ## PASO 7 — Probar la integración completa

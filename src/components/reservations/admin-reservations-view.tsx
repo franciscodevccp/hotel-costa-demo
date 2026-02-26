@@ -92,6 +92,7 @@ export function AdminReservationsView({
     const [selectedReservation, setSelectedReservation] = useState<ReservationDisplay | null>(null);
     const [newReservationOpen, setNewReservationOpen] = useState(false);
     const [reservationToDelete, setReservationToDelete] = useState<ReservationDisplay | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [newGuestId, setNewGuestId] = useState("");
     const [newRoomId, setNewRoomId] = useState("");
     const [newCheckIn, setNewCheckIn] = useState("");
@@ -282,24 +283,28 @@ export function AdminReservationsView({
               typeof document !== "undefined" &&
               createPortal(
                 <div
-                  className="fixed inset-0 z-50 min-h-screen flex items-center justify-center overflow-y-auto bg-black/50 p-4 py-8"
+                  className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-black/50 p-6"
                   style={{ minHeight: "100dvh" }}
                 >
                   <div
-                    className="my-auto w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    className="flex w-full max-w-2xl max-h-[90dvh] min-h-[28rem] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
                   >
-                    <div className="mb-4 flex items-center justify-between">
-                      <h3 className="text-lg font-semibold text-[var(--foreground)]">Nueva reserva</h3>
-                      <button
-                        type="button"
-                        onClick={() => setNewReservationOpen(false)}
-                        className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
-                        aria-label="Cerrar"
-                      >
-                        <X className="h-5 w-5" />
-                      </button>
+                    <div className="shrink-0 border-b border-[var(--border)] px-6 py-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-[var(--foreground)]">Nueva reserva</h3>
+                        <button
+                          type="button"
+                          onClick={() => setNewReservationOpen(false)}
+                          className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
+                          aria-label="Cerrar"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
                     </div>
-                    <form action={reservationFormAction} className="space-y-4">
+                    <form action={reservationFormAction} className="flex min-h-0 flex-1 flex-col">
+                    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                    <div className="space-y-4">
                       {reservationState?.error && (
                         <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
                           {reservationState.error}
@@ -444,11 +449,14 @@ export function AdminReservationsView({
                           name="notes"
                           value={newNotes}
                           onChange={(e) => setNewNotes(e.target.value)}
-                          rows={2}
+                          rows={3}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                         />
                       </div>
-                      <div className="flex gap-2 pt-2">
+                    </div>
+                    </div>
+                    <div className="shrink-0 border-t border-[var(--border)] px-6 py-4">
+                      <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => setNewReservationOpen(false)}
@@ -458,6 +466,7 @@ export function AdminReservationsView({
                         </button>
                         <CrearReservaSubmitButton />
                       </div>
+                    </div>
                     </form>
                   </div>
                 </div>,
@@ -881,26 +890,36 @@ export function AdminReservationsView({
                     <div className="mt-6 flex gap-3">
                       <button
                         type="button"
-                        onClick={() => setReservationToDelete(null)}
-                        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                        disabled={isDeleting}
+                        onClick={() => !isDeleting && setReservationToDelete(null)}
+                        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20 disabled:opacity-50"
                       >
                         No, cancelar
                       </button>
                       <button
                         type="button"
+                        disabled={isDeleting}
                         onClick={async () => {
-                          const ok = await deleteReservation(reservationToDelete.id);
-                          if (ok?.success) {
-                            setReservationToDelete(null);
-                            setSelectedReservation((prev) => (prev?.id === reservationToDelete.id ? null : prev));
-                            router.refresh();
-                          } else if (ok?.error) {
-                            alert(ok.error);
+                          setIsDeleting(true);
+                          try {
+                            const ok = await deleteReservation(reservationToDelete.id);
+                            if (ok?.success) {
+                              setReservationToDelete(null);
+                              setSelectedReservation((prev) => (prev?.id === reservationToDelete.id ? null : prev));
+                              router.refresh();
+                            } else if (ok?.error) {
+                              alert(ok.error);
+                            }
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : "Error al eliminar la reserva";
+                            alert(msg);
+                          } finally {
+                            setIsDeleting(false);
                           }
                         }}
-                        className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                       >
-                        Sí, eliminar
+                        {isDeleting ? "Eliminando…" : "Sí, eliminar"}
                       </button>
                     </div>
                   </div>
