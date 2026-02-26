@@ -14,7 +14,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
-import { deleteProduct as deleteProductAction } from "@/app/dashboard/inventory/actions";
+import {
+  deleteProduct as deleteProductAction,
+  registerMovement as registerMovementAction,
+} from "@/app/dashboard/inventory/actions";
 
 export interface InventoryProduct {
   id: string;
@@ -65,6 +68,8 @@ export function InventoryView({ products: initialProducts }: { products: Product
   const [productToDelete, setProductToDelete] = useState<InventoryProduct | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [movementSubmitting, setMovementSubmitting] = useState(false);
+  const [movementError, setMovementError] = useState<string | null>(null);
   const [stockFilter, setStockFilter] = useState<StockFilter>("");
   const [search, setSearch] = useState("");
   const [showLowStockAlert, setShowLowStockAlert] = useState(true);
@@ -84,6 +89,11 @@ export function InventoryView({ products: initialProducts }: { products: Product
 
   const lowStockProducts = products.filter((p) => p.stock < p.minStock);
   const hasLowStock = lowStockProducts.length > 0;
+
+  // Sincronizar lista cuando el servidor devuelve nuevos datos (p. ej. después de registrar movimiento)
+  useEffect(() => {
+    setProducts(initialProducts.map(toInventoryProduct));
+  }, [initialProducts]);
 
   // Alerta de bajo stock al entrar (se muestra al montar el componente)
   useEffect(() => {
@@ -127,29 +137,28 @@ export function InventoryView({ products: initialProducts }: { products: Product
     setShowAddProduct(false);
   };
 
-  const handleMovement = (e: React.FormEvent) => {
+  const handleMovement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!showMovementModal || movementQty <= 0) return;
     const { product, type } = showMovementModal;
     if (type === "salida" && movementQty > product.stock) return;
-    const folioToSave = movementFolio.trim() || undefined;
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.id !== product.id) return p;
-        const qty = type === "entrada" ? movementQty : -movementQty;
-        const newStock = Math.max(0, p.stock + qty);
-        return {
-          ...p,
-          stock: newStock,
-          entradas: type === "entrada" ? (p.entradas ?? 0) + movementQty : (p.entradas ?? 0),
-          salidas: type === "salida" ? (p.salidas ?? 0) + movementQty : (p.salidas ?? 0),
-          folio: folioToSave ?? p.folio,
-        };
-      })
+    setMovementError(null);
+    setMovementSubmitting(true);
+    const result = await registerMovementAction(
+      product.id,
+      type,
+      movementQty,
+      movementFolio.trim() || undefined
     );
+    setMovementSubmitting(false);
+    if (result.error) {
+      setMovementError(result.error);
+      return;
+    }
     setShowMovementModal(null);
     setMovementQty(0);
     setMovementFolio("");
+    router.refresh();
   };
 
   const handleConfirmDelete = async () => {
@@ -323,9 +332,10 @@ export function InventoryView({ products: initialProducts }: { products: Product
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
                       <button
-                        onClick={() =>
-                          setShowMovementModal({ product, type: "entrada" })
-                        }
+                        onClick={() => {
+                          setMovementError(null);
+                          setShowMovementModal({ product, type: "entrada" });
+                        }}
                         className="flex items-center gap-1 rounded-md border border-[var(--success)]/50 bg-[var(--success)]/5 px-2 py-1 text-xs font-medium text-[var(--success)] hover:bg-[var(--success)]/10"
                         title="Registrar entrada"
                       >
@@ -333,9 +343,10 @@ export function InventoryView({ products: initialProducts }: { products: Product
                         Entrada
                       </button>
                       <button
-                        onClick={() =>
-                          setShowMovementModal({ product, type: "salida" })
-                        }
+                        onClick={() => {
+                          setMovementError(null);
+                          setShowMovementModal({ product, type: "salida" });
+                        }}
                         className="flex items-center gap-1 rounded-md border border-[var(--destructive)]/50 bg-[var(--destructive)]/5 px-2 py-1 text-xs font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/10"
                         title="Registrar salida"
                       >
@@ -528,6 +539,11 @@ export function InventoryView({ products: initialProducts }: { products: Product
                     La cantidad no puede superar el stock actual ({showMovementModal.product.stock} {showMovementModal.product.unit}).
                   </p>
                 )}
+              {movementError && (
+                <p className="text-sm text-[var(--destructive)]" role="alert">
+                  {movementError}
+                </p>
+              )}
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -535,20 +551,23 @@ export function InventoryView({ products: initialProducts }: { products: Product
                     setShowMovementModal(null);
                     setMovementQty(0);
                     setMovementFolio("");
+                    setMovementError(null);
                   }}
-                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)]"
+                  disabled={movementSubmitting}
+                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={
-                    showMovementModal.type === "salida" &&
-                    movementQty > showMovementModal.product.stock
+                    movementSubmitting ||
+                    (showMovementModal.type === "salida" &&
+                      movementQty > showMovementModal.product.stock)
                   }
                   className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Confirmar
+                  {movementSubmitting ? "Guardando…" : "Confirmar"}
                 </button>
               </div>
             </form>
