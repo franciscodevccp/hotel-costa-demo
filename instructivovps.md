@@ -58,31 +58,22 @@ GRANT ALL PRIVILEGES ON DATABASE hotelcosta_db TO hotelcosta;
 
 ### Opción A: Usando Git (recomendado)
 
-En tu máquina local, sube el proyecto a GitHub (repositorio privado):
-
-```bash
-# En tu PC local
-git init
-git add .
-git commit -m "first commit"
-git remote add origin https://github.com/tuusuario/mihotel.git
-git push -u origin main
-```
+Repositorio del proyecto: **https://github.com/franciscodevccp/hotel-costa-demo**
 
 En el servidor, clona el repositorio:
 
 ```bash
 # En el servidor VPS
 cd /var/www
-git clone https://github.com/tuusuario/mihotel.git
-cd mihotel
+git clone https://github.com/franciscodevccp/hotel-costa-demo.git
+cd hotel-costa-demo
 ```
 
 ### Opción B: Subir archivos con SCP (alternativa sin Git)
 
 ```bash
 # En tu PC local
-scp -r /ruta/a/tu/proyecto root@187.77.60.110:/var/www/mihotel
+scp -r /ruta/a/tu/proyecto root@187.77.60.110:/var/www/hotel-costa-demo
 ```
 
 ---
@@ -90,7 +81,7 @@ scp -r /ruta/a/tu/proyecto root@187.77.60.110:/var/www/mihotel
 ## PASO 4 — Configurar variables de entorno
 
 ```bash
-# En el servidor, dentro de /var/www/mihotel
+# En el servidor, dentro de /var/www/hotel-costa-demo
 nano .env
 ```
 
@@ -112,7 +103,7 @@ NEXTAUTH_URL="http://187.77.60.110"
 ## PASO 5 — Instalar dependencias y compilar
 
 ```bash
-cd /var/www/mihotel
+cd /var/www/hotel-costa-demo
 
 # Instalar dependencias
 pnpm install
@@ -133,7 +124,7 @@ pnpm build
 
 ```bash
 # Iniciar la app con PM2
-pm2 start pnpm --name "mihotel" -- start
+pm2 start pnpm --name "hotel-costa" -- start
 
 # Guardar configuración para que arranque automático al reiniciar el servidor
 pm2 startup
@@ -144,9 +135,9 @@ Comandos útiles de PM2:
 
 ```bash
 pm2 status          # Ver estado de la app
-pm2 logs mihotel    # Ver logs en tiempo real
-pm2 restart mihotel # Reiniciar la app
-pm2 stop mihotel    # Detener la app
+pm2 logs hotel-costa    # Ver logs en tiempo real
+pm2 restart hotel-costa # Reiniciar la app
+pm2 stop hotel-costa    # Detener la app
 ```
 
 ---
@@ -155,7 +146,7 @@ pm2 stop mihotel    # Detener la app
 
 ```bash
 # Crear configuración de Nginx
-nano /etc/nginx/sites-available/mihotel
+nano /etc/nginx/sites-available/hotel-costa-demo
 ```
 
 Pegar este contenido:
@@ -180,14 +171,14 @@ server {
 
     # Servir archivos estáticos directamente
     location /_next/static/ {
-        alias /var/www/mihotel/.next/static/;
+        alias /var/www/hotel-costa-demo/.next/static/;
         expires 1y;
         access_log off;
     }
 
     # Servir uploads de fotos
     location /uploads/ {
-        alias /var/www/mihotel/public/uploads/;
+        alias /var/www/hotel-costa-demo/public/uploads/;
         expires 7d;
         access_log off;
     }
@@ -196,7 +187,7 @@ server {
 
 ```bash
 # Activar la configuración
-ln -s /etc/nginx/sites-available/mihotel /etc/nginx/sites-enabled/
+ln -s /etc/nginx/sites-available/hotel-costa-demo /etc/nginx/sites-enabled/
 
 # Eliminar el sitio por defecto
 rm /etc/nginx/sites-enabled/default

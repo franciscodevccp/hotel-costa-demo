@@ -9,9 +9,6 @@ export default async function LoginPage() {
             <h1 className="text-2xl font-semibold text-[var(--primary)]">
               Hotel de la Costa
             </h1>
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              Demo: elige un usuario para entrar
-            </p>
           </div>
           <LoginForm />
         </div>

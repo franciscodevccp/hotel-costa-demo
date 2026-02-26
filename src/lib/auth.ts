@@ -20,6 +20,7 @@ type JWTWithRole = { role?: "ADMIN" | "RECEPTIONIST"; establishmentId?: string }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: env.NEXTAUTH_SECRET,
+  trustHost: true, // necesario detrás de Nginx u otro reverse proxy
   providers: [
     Credentials({
       credentials: {
