@@ -27,6 +27,7 @@ export interface MotopressBooking {
   };
   reserved_accommodations: {
     accommodation: number;
+    accommodation_type?: number; // ID del tipo de habitación en WordPress (este es el que mapeamos con Room.externalId)
     adults: number;
     children?: number;
   }[];
@@ -107,10 +108,12 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
         continue;
       }
 
-      const accommodationId = mp.reserved_accommodations[0]?.accommodation;
-      const room = accommodationId
+      const firstAcc = mp.reserved_accommodations[0];
+      // MotoPress envía accommodation (instancia) y accommodation_type (tipo); nuestro seed usa el ID del tipo
+      const externalIdToMatch = firstAcc?.accommodation_type ?? firstAcc?.accommodation;
+      const room = externalIdToMatch
         ? await prisma.room.findFirst({
-            where: { establishmentId, externalId: String(accommodationId) },
+            where: { establishmentId, externalId: String(externalIdToMatch) },
           })
         : null;
 
