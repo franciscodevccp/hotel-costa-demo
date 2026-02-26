@@ -183,18 +183,22 @@ export async function updateReservationStatus(
 export type DeleteReservationState = { error?: string; success?: boolean };
 
 export async function deleteReservation(reservationId: string): Promise<DeleteReservationState> {
-  const session = await auth();
-  if (!session?.user?.establishmentId) {
-    return { error: "No autorizado" };
-  }
-
   try {
+    const session = await auth();
+    if (!session?.user?.establishmentId) {
+      return { error: "No autorizado" };
+    }
+
     const reservation = await prisma.reservation.findFirst({
       where: { id: reservationId, establishmentId: session.user.establishmentId },
       select: { motopressId: true },
     });
     if (reservation?.motopressId) {
-      await cancelBookingInMotopress(reservation.motopressId);
+      try {
+        await cancelBookingInMotopress(reservation.motopressId);
+      } catch {
+        // Si falla cancelar en MotoPress, igual eliminamos la reserva local
+      }
     }
     await prisma.$transaction(async (tx) => {
       await tx.payment.deleteMany({ where: { reservationId } });
@@ -208,9 +212,13 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
         throw new Error("Reserva no encontrada");
       }
     });
-    revalidatePath("/dashboard/reservations");
-    revalidatePath("/dashboard/pending-payments");
-    revalidatePath("/dashboard/payments");
+    try {
+      revalidatePath("/dashboard/reservations");
+      revalidatePath("/dashboard/pending-payments");
+      revalidatePath("/dashboard/payments");
+    } catch {
+      // No fallar la respuesta si revalidatePath falla
+    }
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al eliminar la reserva";

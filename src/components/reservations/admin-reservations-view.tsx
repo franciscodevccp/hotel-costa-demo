@@ -904,9 +904,12 @@ export function AdminReservationsView({
                           try {
                             const ok = await deleteReservation(reservationToDelete.id);
                             if (ok?.success) {
+                              const idDeleted = reservationToDelete.id;
                               setReservationToDelete(null);
-                              setSelectedReservation((prev) => (prev?.id === reservationToDelete.id ? null : prev));
-                              router.refresh();
+                              setSelectedReservation((prev) => (prev?.id === idDeleted ? null : prev));
+                              setIsDeleting(false);
+                              // Refrescar después de cerrar el modal para evitar error de re-render
+                              requestAnimationFrame(() => router.refresh());
                             } else if (ok?.error) {
                               alert(ok.error);
                             }
