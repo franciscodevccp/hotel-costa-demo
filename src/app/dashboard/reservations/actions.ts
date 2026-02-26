@@ -212,13 +212,8 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
         throw new Error("Reserva no encontrada");
       }
     });
-    try {
-      revalidatePath("/dashboard/reservations");
-      revalidatePath("/dashboard/pending-payments");
-      revalidatePath("/dashboard/payments");
-    } catch {
-      // No fallar la respuesta si revalidatePath falla
-    }
+    // No usar revalidatePath aquí: en producción puede disparar un re-render que falla.
+    // El cliente hace router.refresh() y obtiene datos frescos del servidor.
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al eliminar la reserva";

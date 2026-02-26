@@ -18,25 +18,29 @@ export default async function ReservationsPage() {
     getRooms(session.user.establishmentId),
     getGuests(session.user.establishmentId),
   ]);
-  const reservations = raw.map((r) => {
-    const paid = r.payments.reduce((s, p) => s + p.amount, 0);
-    return {
-      id: r.id,
-      guest_name: r.guest.fullName,
-      guest_email: r.guest.email ?? "",
-      guest_phone: r.guest.phone ?? "",
-      room_number: r.room.roomNumber,
-      room_type: r.room.type,
-      check_in: format(r.checkIn, "yyyy-MM-dd"),
-      check_out: format(r.checkOut, "yyyy-MM-dd"),
-      status: r.status.toLowerCase() as "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled",
-      total_price: r.totalAmount,
-      paid_amount: paid,
-      pending_amount: Math.max(0, r.totalAmount - paid),
-      nights: differenceInDays(r.checkOut, r.checkIn),
-      guests: r.numGuests,
-    };
-  });
+  const reservations = raw
+    .filter((r) => r.guest != null && r.room != null)
+    .map((r) => {
+      const guest = r.guest!;
+      const room = r.room!;
+      const paid = r.payments.reduce((s, p) => s + p.amount, 0);
+      return {
+        id: r.id,
+        guest_name: guest.fullName,
+        guest_email: guest.email ?? "",
+        guest_phone: guest.phone ?? "",
+        room_number: room.roomNumber,
+        room_type: room.type,
+        check_in: format(r.checkIn, "yyyy-MM-dd"),
+        check_out: format(r.checkOut, "yyyy-MM-dd"),
+        status: r.status.toLowerCase() as "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled",
+        total_price: r.totalAmount,
+        paid_amount: paid,
+        pending_amount: Math.max(0, r.totalAmount - paid),
+        nights: differenceInDays(r.checkOut, r.checkIn),
+        guests: r.numGuests,
+      };
+    });
   const roomNumbers = rooms.map((r) => r.roomNumber).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const roomsForForm = rooms.map((r) => ({ id: r.id, roomNumber: r.roomNumber, pricePerNight: r.pricePerNight }));
   const guestsForForm = guests.map((g) => ({ id: g.id, fullName: g.fullName, email: g.email ?? "" }));

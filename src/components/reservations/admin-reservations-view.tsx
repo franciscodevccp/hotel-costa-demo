@@ -908,8 +908,8 @@ export function AdminReservationsView({
                               setReservationToDelete(null);
                               setSelectedReservation((prev) => (prev?.id === idDeleted ? null : prev));
                               setIsDeleting(false);
-                              // Refrescar después de cerrar el modal para evitar error de re-render
-                              requestAnimationFrame(() => router.refresh());
+                              // Refrescar tras un breve retraso para que el modal se cierre y no falle el re-render del servidor
+                              setTimeout(() => router.refresh(), 100);
                             } else if (ok?.error) {
                               alert(ok.error);
                             }
