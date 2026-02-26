@@ -17,6 +17,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Sistema Administrativo Hotel de la Costa",
   description: "Sistema administrativo para Hotel de la Costa",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export const viewport = {
