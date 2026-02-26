@@ -33,7 +33,7 @@ export interface MotopressBooking {
   }[];
 }
 
-export async function fetchMotopressBookings(): Promise<MotopressBooking[]> {
+async function fetchMotopressBookings(): Promise<MotopressBooking[]> {
   if (!MOTOPRESS_URL) throw new Error("MOTOPRESS_URL no está configurado");
   const authHeader = getAuthHeader();
   const response = await fetch(

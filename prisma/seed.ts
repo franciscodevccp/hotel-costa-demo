@@ -122,98 +122,11 @@ async function main() {
   }
   console.log("✅ Rooms: 22 habitaciones (MotoPress externalId asignados)");
 
-  // ─── 4. Suppliers — 7 proveedores ───────────────────────────────────────
-  const supplierNames = [
-    "Proveedor Aseo y Limpieza",
-    "Distribuidora de Alimentos",
-    "Ropa de Cama y Textiles",
-    "Bebidas y Cafetería",
-    "Artículos de Higiene",
-    "Servicios de Mantenimiento",
-    "Suministros de Oficina",
-  ];
+  // ─── 4. Suppliers — sin datos por ahora ──────────────────────────────────
   await prisma.supplier.deleteMany({ where: { establishmentId: establishment.id } });
-  await prisma.supplier.createMany({
-    data: supplierNames.map((name) => ({ establishmentId: establishment.id, name })),
-  });
-  console.log("✅ Suppliers: 7 proveedores creados");
+  console.log("✅ Suppliers: inventario vacío (sin proveedores)");
 
-  // ─── 5. Inventory products — ~100 productos por categoría ───────────────
-  const productCategories: Record<string, Array<[string, string, number]>> = {
-    Aseo: [
-      ["Jabón de tocador", "unidad", 20],
-      ["Papel higiénico", "rollo", 15],
-      ["Shampoo", "unidad", 20],
-      ["Toalla de mano", "unidad", 30],
-      ["Toalla grande", "unidad", 30],
-      ["Escobilla inodoro", "unidad", 10],
-      ["Bolsa de basura", "unidad", 50],
-      ["Detergente líquido", "litro", 10],
-      ["Desinfectante", "litro", 8],
-      ["Esponja multiuso", "unidad", 25],
-      ["Guantes de limpieza", "unidad", 20],
-      ["Trapeador", "unidad", 5],
-      ["Recogedor", "unidad", 5],
-      ["Cubo", "unidad", 5],
-      ["Ambientador", "unidad", 15],
-    ],
-    "Ropa de cama": [
-      ["Sábana bajera", "unidad", 25],
-      ["Sábana encimera", "unidad", 25],
-      ["Funda de almohada", "unidad", 30],
-      ["Cobertor", "unidad", 15],
-      ["Manta", "unidad", 15],
-      ["Colchón protector", "unidad", 10],
-    ],
-    Desayuno: [
-      ["Café molido", "kg", 10],
-      ["Té negro", "caja", 15],
-      ["Té verde", "caja", 15],
-      ["Azúcar", "kg", 20],
-      ["Edulcorante", "unidad", 20],
-      ["Leche UHT", "litro", 30],
-      ["Pan de molde", "unidad", 20],
-      ["Mantequilla", "unidad", 15],
-      ["Mermelada", "frasco", 10],
-      ["Cereal", "bolsa", 15],
-      ["Jugo de naranja", "litro", 20],
-      ["Yogurt", "unidad", 30],
-      ["Fruta fresca", "kg", 10],
-      ["Queso laminado", "unidad", 15],
-      ["Jamón", "kg", 5],
-    ],
-    Bebidas: [
-      ["Agua mineral", "unidad", 50],
-      ["Bebida", "unidad", 30],
-      ["Cerveza", "unidad", 24],
-      ["Vino tinto", "botella", 12],
-      ["Vino blanco", "botella", 12],
-    ],
-    "Artículos de baño": [
-      ["Peine", "unidad", 20],
-      ["Cepillo de dientes", "unidad", 25],
-      ["Pasta dental", "unidad", 15],
-      ["Enjuague bucal", "unidad", 10],
-      ["Crema de afeitar", "unidad", 15],
-      ["Toalla desmaquillante", "unidad", 30],
-    ],
-    Oficina: [
-      ["Papel A4", "resma", 10],
-      ["Bolígrafo", "unidad", 50],
-      ["Carpeta", "unidad", 20],
-      ["Grapas", "caja", 5],
-      ["Sobre", "unidad", 30],
-    ],
-    Mantenimiento: [
-      ["Bombillo", "unidad", 20],
-      ["Pila", "unidad", 30],
-      ["Cinta adhesiva", "unidad", 15],
-      ["Destornillador", "unidad", 5],
-      ["Llave inglesa", "unidad", 3],
-    ],
-  };
-
-  // Eliminar en orden: ítems de facturas y movimientos referencian a productos
+  // ─── 5. Inventory — vacío hasta que se carguen productos ─────────────────
   await prisma.invoiceItem.deleteMany({
     where: { invoice: { establishmentId: establishment.id } },
   });
@@ -221,23 +134,7 @@ async function main() {
     where: { product: { establishmentId: establishment.id } },
   });
   await prisma.inventoryProduct.deleteMany({ where: { establishmentId: establishment.id } });
-  let count = 0;
-  for (const [category, items] of Object.entries(productCategories)) {
-    for (const [name, unit, minStock] of items) {
-      await prisma.inventoryProduct.create({
-        data: {
-          establishmentId: establishment.id,
-          name,
-          category,
-          unit,
-          minStock,
-          stock: minStock + Math.floor(Math.random() * 20),
-        },
-      });
-      count++;
-    }
-  }
-  console.log("✅ Inventory products:", count, "productos creados");
+  console.log("✅ Inventory: vacío (sin productos)");
 
   console.log("\n🎉 Seed completado.");
 }
