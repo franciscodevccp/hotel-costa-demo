@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
-import { createPortal, useFormStatus } from "react-dom";
+import { createPortal } from "react-dom";
 import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservation, updateReservationStatus, deleteReservation, type CreateReservationState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, deleteReservation, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { SyncMotopressButton } from "./sync-motopress-button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -58,18 +58,18 @@ function formatChileanRut(value: string): string {
   return dv ? `${bodyFormatted}-${dv}` : bodyFormatted;
 }
 
-const initialReservationState: CreateReservationState = {};
+type RoomLine = { roomId: string; numGuests: number };
+const initialReservationState: CreateReservationsBulkState = {};
 const initialGuestState: CreateGuestState = {};
 
-function CrearReservaSubmitButton() {
-  const { pending } = useFormStatus();
+function CrearReservaSubmitButton({ disabled, loading }: { disabled?: boolean; loading?: boolean }) {
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={disabled || loading}
       className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
     >
-      {pending ? "Creando…" : "Crear reserva"}
+      {loading ? "Creando…" : "Crear reserva"}
     </button>
   );
 }
@@ -94,15 +94,15 @@ export function AdminReservationsView({
     const [reservationToDelete, setReservationToDelete] = useState<ReservationDisplay | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [newGuestId, setNewGuestId] = useState("");
-    const [newRoomId, setNewRoomId] = useState("");
+    const [roomLines, setRoomLines] = useState<RoomLine[]>([{ roomId: "", numGuests: 1 }]);
     const [newCheckIn, setNewCheckIn] = useState("");
     const [newCheckOut, setNewCheckOut] = useState("");
-    const [newNumGuests, setNewNumGuests] = useState(1);
     const [newTotalAmount, setNewTotalAmount] = useState(0);
     const [newDownPayment, setNewDownPayment] = useState(0);
     const [newDownPaymentMethod, setNewDownPaymentMethod] = useState<"CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER">("CASH");
     const [newNotes, setNewNotes] = useState("");
-    const [reservationState, reservationFormAction] = useActionState(createReservation, initialReservationState);
+    const [reservationState, setReservationState] = useState<CreateReservationsBulkState>(initialReservationState);
+    const [bulkSaving, setBulkSaving] = useState(false);
     const [localGuests, setLocalGuests] = useState<GuestOption[]>(guests);
     const [newGuestOpen, setNewGuestOpen] = useState(false);
     const [newGuestRut, setNewGuestRut] = useState("");
@@ -176,16 +176,19 @@ export function AdminReservationsView({
     })();
 
     const ROOMS = roomNumbers.length > 0 ? roomNumbers : Array.from(new Set(reservations.map((r) => r.room_number))).sort();
-    const selectedRoom = rooms.find((r) => r.id === newRoomId);
-
-    // Si la habitación seleccionada dejó de estar disponible (fechas cambiadas), limpiar selección
-    useEffect(() => {
-      if (newRoomId && !availableRooms.some((r) => r.id === newRoomId)) {
-        setNewRoomId("");
-      }
-    }, [newRoomId, availableRooms]);
     const nights = newCheckIn && newCheckOut ? Math.max(0, differenceInDays(new Date(newCheckOut), new Date(newCheckIn))) : 0;
-    const calculatedTotal = selectedRoom ? selectedRoom.pricePerNight * nights : 0;
+
+    // Para cada línea, habitaciones disponibles = las globales menos las ya elegidas en otras líneas
+    const availableRoomsForLine = (lineIndex: number) =>
+      availableRooms.filter(
+        (r) => !roomLines.some((l, i) => i !== lineIndex && l.roomId === r.id)
+      );
+
+    const calculatedTotal = roomLines.reduce((sum, line) => {
+      if (!line.roomId) return sum;
+      const room = rooms.find((r) => r.id === line.roomId);
+      return sum + (room ? room.pricePerNight * nights : 0);
+    }, 0);
 
     useEffect(() => {
       if (reservationState?.success) {
@@ -197,14 +200,14 @@ export function AdminReservationsView({
     useEffect(() => {
       if (newReservationOpen) {
         setNewGuestId("");
-        setNewRoomId("");
+        setRoomLines([{ roomId: "", numGuests: 1 }]);
         setNewCheckIn("");
         setNewCheckOut("");
-        setNewNumGuests(1);
         setNewTotalAmount(0);
         setNewDownPayment(0);
         setNewDownPaymentMethod("CASH");
         setNewNotes("");
+        setReservationState({});
       }
     }, [newReservationOpen]);
 
@@ -342,7 +345,43 @@ export function AdminReservationsView({
                         </button>
                       </div>
                     </div>
-                    <form action={reservationFormAction} className="flex min-h-0 flex-1 flex-col">
+                    <form
+                      className="flex min-h-0 flex-1 flex-col"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!newGuestId) {
+                          setReservationState({ error: "Seleccione un huésped" });
+                          return;
+                        }
+                        const validLines = roomLines.filter((l) => l.roomId && l.numGuests >= 1);
+                        if (validLines.length === 0) {
+                          setReservationState({ error: "Agregue al menos una habitación e indique huéspedes" });
+                          return;
+                        }
+                        if (!newCheckIn || !newCheckOut) {
+                          setReservationState({ error: "Indique fechas de check-in y check-out" });
+                          return;
+                        }
+                        setBulkSaving(true);
+                        setReservationState({});
+                        const result = await createReservationsBulk({
+                          guestId: newGuestId,
+                          checkIn: newCheckIn,
+                          checkOut: newCheckOut,
+                          rooms: validLines,
+                          downPayment: newDownPayment,
+                          downPaymentMethod: newDownPaymentMethod,
+                          notes: newNotes || undefined,
+                        });
+                        setBulkSaving(false);
+                        if (result.error) {
+                          setReservationState({ error: result.error });
+                        } else {
+                          setReservationState({ success: true, created: result.created });
+                          router.refresh();
+                        }
+                      }}
+                    >
                     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
                     <div className="space-y-4">
                       {reservationState?.error && (
@@ -381,34 +420,79 @@ export function AdminReservationsView({
                         )}
                       </div>
                       <div>
-                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Habitación</label>
-                        <CustomSelect
-                          value={newRoomId}
-                          onChange={setNewRoomId}
-                          options={availableRooms.map((r) => ({
-                            value: r.id,
-                            label: `Hab. ${r.roomNumber} – ${r.pricePerNight.toLocaleString("es-CL")}/noche`,
-                          }))}
-                          placeholder="Seleccionar habitación"
-                          className="w-full"
-                          aria-label="Seleccionar habitación"
-                        />
-                        <input type="hidden" name="roomId" value={newRoomId} />
+                        <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">Habitaciones</label>
+                        <p className="mb-2 text-xs text-[var(--muted)]">
+                          Agregue una o más habitaciones e indique cuántas personas se alojarán en cada una.
+                        </p>
+                        {roomLines.map((line, index) => (
+                          <div
+                            key={index}
+                            className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-3"
+                          >
+                            <div className="min-w-[140px] flex-1">
+                              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Habitación</span>
+                              <CustomSelect
+                                value={line.roomId}
+                                onChange={(v) =>
+                                  setRoomLines((prev) =>
+                                    prev.map((l, i) => (i === index ? { ...l, roomId: v } : l))
+                                  )
+                                }
+                                options={availableRoomsForLine(index).map((r) => ({
+                                  value: r.id,
+                                  label: `Hab. ${r.roomNumber} – ${r.pricePerNight.toLocaleString("es-CL")}/noche`,
+                                }))}
+                                placeholder="Seleccionar"
+                                aria-label={`Habitación ${index + 1}`}
+                              />
+                            </div>
+                            <div className="w-28">
+                              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Huéspedes</span>
+                              <CustomSelect
+                                value={String(line.numGuests)}
+                                onChange={(v) =>
+                                  setRoomLines((prev) =>
+                                    prev.map((l, i) =>
+                                      i === index ? { ...l, numGuests: parseInt(v, 10) || 1 } : l
+                                    )
+                                  )
+                                }
+                                options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
+                                  value: String(n),
+                                  label: n === 1 ? "1 persona" : `${n} personas`,
+                                }))}
+                                placeholder="—"
+                                aria-label={`Nº huéspedes habitación ${index + 1}`}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRoomLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
+                              }
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                              title="Quitar habitación"
+                              aria-label="Quitar habitación"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setRoomLines((prev) => [...prev, { roomId: "", numGuests: 1 }])}
+                          className="rounded-lg border border-dashed border-[var(--border)] bg-transparent px-3 py-2 text-sm font-medium text-[var(--muted)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 hover:text-[var(--foreground)]"
+                        >
+                          + Agregar otra habitación
+                        </button>
                         {newCheckIn && newCheckOut && (
                           <p className="mt-1.5 text-xs text-[var(--muted)]">
                             {availableRooms.length === 0
-                              ? "No hay habitaciones disponibles para estas fechas. Las ocupadas no se muestran aquí."
-                              : `${availableRooms.length} habitación${availableRooms.length !== 1 ? "es" : ""} disponible${availableRooms.length !== 1 ? "s" : ""} para las fechas elegidas.`}
-                          </p>
-                        )}
-                        {(!newCheckIn || !newCheckOut) && (
-                          <p className="mt-1.5 text-xs text-[var(--muted)]">
-                            Se muestran solo habitaciones no ocupadas hoy. Elige check-in y check-out para filtrar por esas fechas.
+                              ? "No hay habitaciones disponibles para estas fechas."
+                              : `${availableRooms.length} disponible${availableRooms.length !== 1 ? "s" : ""} para las fechas elegidas.`}
                           </p>
                         )}
                       </div>
-                      <input type="hidden" name="checkIn" value={newCheckIn} />
-                      <input type="hidden" name="checkOut" value={newCheckOut} />
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Check-in</label>
@@ -430,20 +514,6 @@ export function AdminReservationsView({
                             aria-label="Fecha de check-out"
                           />
                         </div>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nº huéspedes</label>
-                        <CustomSelect
-                          value={String(newNumGuests)}
-                          onChange={(v) => setNewNumGuests(parseInt(v, 10))}
-                          options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
-                            value: String(n),
-                            label: n === 1 ? "1 persona" : `${n} personas`,
-                          }))}
-                          placeholder="Seleccionar"
-                          aria-label="Número de huéspedes"
-                        />
-                        <input type="hidden" name="numGuests" value={newNumGuests} />
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Total (CLP)</label>
@@ -514,7 +584,10 @@ export function AdminReservationsView({
                         >
                           Cancelar
                         </button>
-                        <CrearReservaSubmitButton />
+                        <CrearReservaSubmitButton
+                          disabled={roomLines.every((l) => !l.roomId)}
+                          loading={bulkSaving}
+                        />
                       </div>
                     </div>
                     </form>

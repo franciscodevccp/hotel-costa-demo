@@ -136,6 +136,148 @@ export async function createReservation(
   }
 }
 
+export type CreateReservationsBulkState = { error?: string; success?: boolean; created?: number };
+
+/** Crea varias reservas a la vez (mismo huésped, mismas fechas): una por habitación, cada una con su número de huéspedes. */
+export async function createReservationsBulk(payload: {
+  guestId: string;
+  checkIn: string;
+  checkOut: string;
+  rooms: Array<{ roomId: string; numGuests: number }>;
+  downPayment: number;
+  downPaymentMethod: string;
+  notes?: string | null;
+}): Promise<CreateReservationsBulkState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, notes } = payload;
+
+  if (!guestId) return { error: "Seleccione un huésped" };
+  if (!roomLines?.length) return { error: "Agregue al menos una habitación" };
+
+  const validLines = roomLines.filter((l) => l.roomId && l.numGuests >= 1);
+  if (validLines.length === 0) return { error: "Cada habitación debe tener al menos 1 huésped" };
+
+  const [yIn, mIn, dIn] = checkInStr.split("-").map(Number);
+  const [yOut, mOut, dOut] = checkOutStr.split("-").map(Number);
+  const checkIn = new Date(yIn, mIn - 1, dIn);
+  const checkOut = new Date(yOut, mOut - 1, dOut);
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+    return { error: "Fechas no válidas" };
+  }
+  if (checkIn >= checkOut) return { error: "El check-out debe ser posterior al check-in" };
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  if (checkIn < todayStart) return { error: "El check-in no puede ser anterior a hoy" };
+
+  const VALID_PAYMENT_METHODS = ["CASH", "DEBIT", "CREDIT", "TRANSFER", "OTHER"] as const;
+  const method = VALID_PAYMENT_METHODS.includes(payload.downPaymentMethod as (typeof VALID_PAYMENT_METHODS)[number])
+    ? (payload.downPaymentMethod as (typeof VALID_PAYMENT_METHODS)[number])
+    : "CASH";
+
+  const userId = session.user?.id;
+  if (!userId) return { error: "No autorizado" };
+
+  const establishmentId = session.user.establishmentId;
+
+  try {
+    const roomIds = validLines.map((l) => l.roomId);
+    const roomsFromDb = await prisma.room.findMany({
+      where: { id: { in: roomIds }, establishmentId },
+      select: { id: true, pricePerNight: true, externalId: true },
+    });
+    const roomMap = new Map(roomsFromDb.map((r) => [r.id, r]));
+    const nights = Math.max(0, Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)));
+
+    const guest = await prisma.guest.findUnique({
+      where: { id: guestId, establishmentId },
+      select: { fullName: true, email: true, phone: true },
+    });
+    if (!guest) return { error: "Huésped no encontrado" };
+
+    let downPaymentRemaining = Math.max(0, downPayment);
+    let created = 0;
+
+    for (const line of validLines) {
+      const room = roomMap.get(line.roomId);
+      if (!room) continue;
+      const totalAmount = room.pricePerNight * nights;
+
+      const reservation = await prisma.reservation.create({
+        data: {
+          establishmentId,
+          guestId,
+          roomId: line.roomId,
+          checkIn,
+          checkOut,
+          numGuests: Math.min(10, Math.max(1, line.numGuests)),
+          totalAmount,
+          notes: notes?.trim() || null,
+          status: "PENDING",
+          source: "MANUAL",
+        },
+      });
+      created += 1;
+
+      const amountForThis = Math.min(downPaymentRemaining, totalAmount);
+      if (amountForThis > 0) {
+        await prisma.payment.create({
+          data: {
+            establishmentId,
+            reservationId: reservation.id,
+            registeredById: userId,
+            amount: amountForThis,
+            method,
+            status: "COMPLETED",
+            notes: "Abono al crear reserva",
+          },
+        });
+        downPaymentRemaining -= amountForThis;
+      }
+
+      try {
+        if (room.externalId && guest.email) {
+          const parts = (guest.fullName || "Huésped").trim().split(/\s+/);
+          const guestFirstName = parts[0] ?? "Huésped";
+          const guestLastName = parts.slice(1).join(" ") || guestFirstName;
+          const motopressId = await pushBookingToMotopress({
+            accommodationExternalId: room.externalId,
+            checkIn,
+            checkOut,
+            adults: line.numGuests,
+            children: 0,
+            guestFirstName,
+            guestLastName,
+            guestEmail: guest.email,
+            guestPhone: guest.phone ?? undefined,
+            note: notes ?? undefined,
+          });
+          if (motopressId) {
+            await prisma.reservation.update({
+              where: { id: reservation.id },
+              data: { motopressId, syncedAt: new Date() },
+            });
+          }
+        }
+      } catch (_) {
+        // no bloquear creación si falla push
+      }
+    }
+
+    revalidatePath("/dashboard/reservations");
+    revalidatePath("/dashboard/pending-payments");
+    revalidatePath("/dashboard/payments");
+    return { success: true, created };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al crear las reservas";
+    return { error: message };
+  }
+}
+
 const VALID_STATUSES = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "NO_SHOW"] as const;
 
 export type UpdateReservationStatusState = { error?: string; success?: boolean };
