@@ -61,7 +61,7 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
       <div>
-        <label htmlFor="email" className="mb-1 block text-sm font-medium text-[var(--foreground)]">
+        <label htmlFor="email" className="mb-1 block text-sm font-medium text-[var(--muted)]">
           Email
         </label>
         <input
@@ -69,17 +69,17 @@ export function LoginForm() {
           name="email"
           type="email"
           autoComplete="email"
-          className={`w-full rounded-md border bg-[var(--card)] px-3 py-2.5 text-sm transition-colors ${
+          className={`w-full rounded-md border bg-white px-3 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/70 transition-colors ${
             error
               ? "border-[var(--destructive)] focus:outline-none focus:ring-2 focus:ring-[var(--destructive)]/50"
-              : "border-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/50"
+              : "border-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-coffee)]/40"
           }`}
           placeholder="tu@email.com"
           aria-invalid={!!error}
         />
       </div>
       <div>
-        <label htmlFor="password" className="mb-1 block text-sm font-medium text-[var(--foreground)]">
+        <label htmlFor="password" className="mb-1 block text-sm font-medium text-[var(--muted)]">
           Contraseña
         </label>
         <input
@@ -87,10 +87,10 @@ export function LoginForm() {
           name="password"
           type="password"
           autoComplete="current-password"
-          className={`w-full rounded-md border bg-[var(--card)] px-3 py-2.5 text-sm transition-colors ${
+          className={`w-full rounded-md border bg-white px-3 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]/70 transition-colors ${
             error
               ? "border-[var(--destructive)] focus:outline-none focus:ring-2 focus:ring-[var(--destructive)]/50"
-              : "border-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/50"
+              : "border-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-coffee)]/40"
           }`}
           placeholder="••••••••"
           aria-invalid={!!error}
@@ -109,7 +109,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-md bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--primary-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 transition-opacity"
+        className="w-full rounded-md bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-[var(--primary-foreground)] shadow-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 transition-opacity"
       >
         {loading ? "Entrando…" : "Entrar"}
       </button>

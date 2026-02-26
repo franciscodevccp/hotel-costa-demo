@@ -1,20 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  /* Hotel de la Costa - Paleta */
-  --background: #f8fafc;
-  --foreground: #171717;
-  --primary: #1e3a5f;
+  /* Hotel de la Costa - Paleta Negro, Blanco y Café/Beige */
+  --background: #faf6f0;
+  --foreground: #1a1a1a;
+  --primary: #2c1810;
   --primary-foreground: #ffffff;
-  --secondary: #3b82f6;
+  --secondary: #6f4e37;
   --secondary-foreground: #ffffff;
-  --success: #22c55e;
-  --destructive: #ef4444;
-  --warning: #eab308;
-  --muted: #6b7280;
+  --success: #5c4033;
+  --destructive: #b91c1c;
+  --warning: #b45309;
+  --muted: #5c5349;
   --card: #ffffff;
-  --card-foreground: #171717;
-  --border: #e2e8f0;
+  --card-foreground: #1a1a1a;
+  --border: #e8dfd4;
+  /* Acentos café/beige para fondos y detalles */
+  --accent-beige: #e8dfd4;
+  --accent-coffee: #6f4e37;
+  --accent-coffee-dark: #5c4033;
 }
 
 @theme inline {
@@ -152,7 +156,7 @@ body {
 .select-custom:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.2);
+  box-shadow: 0 0 0 2px rgba(44, 24, 16, 0.15);
 }
 .select-custom option {
   padding: 0.5rem;
