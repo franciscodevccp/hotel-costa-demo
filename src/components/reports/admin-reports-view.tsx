@@ -18,6 +18,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { StatCard } from "@/components/dashboard/stat-card";
+import { CustomSelect } from "@/components/ui/custom-select";
 import { format, eachDayOfInterval, startOfMonth, endOfMonth } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -95,6 +96,14 @@ const MESES: { value: number; label: string }[] = [
   { value: 7, label: "Julio" }, { value: 8, label: "Agosto" }, { value: 9, label: "Septiembre" },
   { value: 10, label: "Octubre" }, { value: 11, label: "Noviembre" }, { value: 12, label: "Diciembre" },
 ];
+
+const MESES_OPTIONS = MESES.map((m) => ({ value: String(m.value), label: m.label }));
+
+const getYearOptions = () =>
+  Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => ({
+    value: String(y),
+    label: String(y),
+  }));
 
 export function AdminReportsView({
   data,
@@ -190,47 +199,39 @@ export function AdminReportsView({
         </p>
       </div>
 
-      {/* Selector de período */}
+      {/* Selector de período (diseño personalizado con CustomSelect) */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 shadow-sm">
         <p className="mb-3 text-sm font-medium text-[var(--foreground)]">
           Período consultado
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-1.5">
             <label htmlFor="report-month" className="text-xs text-[var(--muted)]">
               Mes
             </label>
-            <select
-              id="report-month"
-              value={month}
-              onChange={(e) => goToPeriod(year, Number(e.target.value))}
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-            >
-              {MESES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            <CustomSelect
+              value={String(month)}
+              onChange={(v) => v && goToPeriod(year, Number(v))}
+              options={MESES_OPTIONS}
+              placeholder="Mes"
+              className="min-w-[140px]"
+              aria-label="Seleccionar mes"
+            />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-1.5">
             <label htmlFor="report-year" className="text-xs text-[var(--muted)]">
               Año
             </label>
-            <select
-              id="report-year"
-              value={year}
-              onChange={(e) => goToPeriod(Number(e.target.value), month)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-            >
-              {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+            <CustomSelect
+              value={String(year)}
+              onChange={(v) => v && goToPeriod(Number(v), month)}
+              options={getYearOptions()}
+              placeholder="Año"
+              className="min-w-[100px]"
+              aria-label="Seleccionar año"
+            />
           </div>
-          <span className="text-sm text-[var(--muted)]">
+          <span className="self-end pb-2 text-sm text-[var(--muted)]">
             → Resumen de <span className="font-medium text-[var(--primary)]">{monthLabel}</span>
           </span>
         </div>
