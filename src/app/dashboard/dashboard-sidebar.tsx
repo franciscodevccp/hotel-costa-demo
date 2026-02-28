@@ -19,23 +19,56 @@ import {
   ChevronRight,
   Wallet,
   Banknote,
+  ClipboardList,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types/database";
 import { useSidebar } from "@/hooks/use-sidebar";
 
-const navItems: { href: string; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/rooms", label: "Habitaciones", icon: BedDouble },
-  { href: "/dashboard/reservations", label: "Reservas", icon: Calendar },
-  { href: "/dashboard/guests", label: "Huéspedes", icon: Users },
-  { href: "/dashboard/payments", label: "Pagos", icon: CreditCard },
-  { href: "/dashboard/pending-payments", label: "Pagos pendientes", icon: Clock },
-  { href: "/dashboard/receivables", label: "Por cobrar", icon: Wallet, adminOnly: true },
-  { href: "/dashboard/payables", label: "Por pagar", icon: Banknote, adminOnly: true },
-  { href: "/dashboard/inventory", label: "Inventario", icon: Package },
-  { href: "/dashboard/invoices", label: "Boletas / Facturas", icon: FileText },
-  { href: "/dashboard/reports", label: "Reportes", icon: BarChart3 },
-  { href: "/dashboard/settings", label: "Configuración", icon: Settings },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  adminOnly?: boolean;
+};
+
+const navSections: { label: string; items: NavItem[] }[] = [
+  {
+    label: "Inicio",
+    items: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    label: "Reservas y habitaciones",
+    items: [
+      { href: "/dashboard/reservations", label: "Reservas", icon: Calendar },
+      { href: "/dashboard/room-register", label: "Registro habitaciones", icon: ClipboardList },
+      { href: "/dashboard/rooms", label: "Habitaciones", icon: BedDouble },
+    ],
+  },
+  {
+    label: "Huéspedes",
+    items: [{ href: "/dashboard/guests", label: "Huéspedes", icon: Users }],
+  },
+  {
+    label: "Pagos y finanzas",
+    items: [
+      { href: "/dashboard/payments", label: "Pagos", icon: CreditCard },
+      { href: "/dashboard/pending-payments", label: "Pagos pendientes", icon: Clock },
+      { href: "/dashboard/receivables", label: "Por cobrar", icon: Wallet, adminOnly: true },
+      { href: "/dashboard/payables", label: "Por pagar", icon: Banknote, adminOnly: true },
+      { href: "/dashboard/invoices", label: "Boletas / Facturas", icon: FileText },
+    ],
+  },
+  {
+    label: "Operación",
+    items: [
+      { href: "/dashboard/inventory", label: "Inventario", icon: Package },
+      { href: "/dashboard/reports", label: "Reportes", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Sistema",
+    items: [{ href: "/dashboard/settings", label: "Configuración", icon: Settings }],
+  },
 ];
 
 const roleLabels: Record<UserRole, string> = {
@@ -124,40 +157,45 @@ export function DashboardSidebar({
       )}
 
       <nav className="sidebar-scroll flex-1 space-y-1 overflow-y-auto p-2">
-        {navItems.map(({ href, label, icon: Icon, adminOnly }, index) => {
-          if (href === "/dashboard/settings" && !showSettings) return null;
-          if (adminOnly && userRole !== "admin") return null;
-
-          if (userRole === "receptionist") {
-            const receptionistHiddenRoutes = [
-              "/dashboard/reports",
-            ];
-            if (receptionistHiddenRoutes.includes(href)) return null;
-          }
-
-          const isActive = pathname === href;
-          const showDivider = index === 8;
+        {navSections.map(({ label: sectionLabel, items }) => {
+          const visibleItems = items.filter(({ href, adminOnly }) => {
+            if (href === "/dashboard/settings" && !showSettings) return false;
+            if (adminOnly && userRole !== "admin") return false;
+            if (userRole === "receptionist" && ["/dashboard/reports"].includes(href)) return false;
+            return true;
+          });
+          if (visibleItems.length === 0) return null;
 
           return (
-            <div key={href}>
-              {showDivider && (
-                <div className="my-2 border-t border-white/10" />
+            <div key={sectionLabel} className={collapsed ? "" : "mb-3"}>
+              {!collapsed && (
+                <p className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-white/50">
+                  {sectionLabel}
+                </p>
               )}
-              <Link
-                href={href}
-                onClick={onLinkClick}
-                className={`group relative flex items-center rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-200 ${isActive
-                  ? "bg-white/15 text-white shadow-sm"
-                  : "text-white/75 hover:bg-white/10 hover:text-white"
-                  } ${collapsed ? "justify-center" : "gap-2.5"}`}
-                title={collapsed ? label : undefined}
-              >
-                {isActive && !collapsed && (
-                  <div className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-white" />
-                )}
-                <Icon className={`h-4 w-4 shrink-0 transition-transform ${!isActive && 'group-hover:scale-110'}`} />
-                {!collapsed && <span className="truncate">{label}</span>}
-              </Link>
+              <div className="space-y-0.5">
+                {visibleItems.map(({ href, label, icon: Icon, adminOnly }) => {
+                  const isActive = pathname === href;
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      onClick={onLinkClick}
+                      className={`group relative flex items-center rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-200 ${isActive
+                        ? "bg-white/15 text-white shadow-sm"
+                        : "text-white/75 hover:bg-white/10 hover:text-white"
+                        } ${collapsed ? "justify-center" : "gap-2.5"}`}
+                      title={collapsed ? label : undefined}
+                    >
+                      {isActive && !collapsed && (
+                        <div className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-white" />
+                      )}
+                      <Icon className={`h-4 w-4 shrink-0 transition-transform ${!isActive && "group-hover:scale-110"}`} />
+                      {!collapsed && <span className="truncate">{label}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
           );
         })}

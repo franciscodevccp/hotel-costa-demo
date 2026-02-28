@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, ImagePlus } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { completePaymentWithRest, type PaymentMethodValue } from "@/app/dashboard/payments/actions";
 import type { PaymentRow } from "./admin-payments-view";
@@ -54,6 +54,7 @@ export function EditPaymentModal({
   const [newPaymentAmount, setNewPaymentAmount] = useState("");
   const [useSameMethodAsAbono, setUseSameMethodAsAbono] = useState(true);
   const [newPaymentMethod, setNewPaymentMethod] = useState(payment.method);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
   const paymentsOfReservationSorted = [...paymentsOfReservation].sort(
     (a, b) => new Date(a.paid_at).getTime() - new Date(b.paid_at).getTime()
@@ -90,6 +91,10 @@ export function EditPaymentModal({
       minute: "2-digit",
     });
 
+  const methodToUse = useSameMethodAsAbono ? metodoAbonoInicial : newPaymentMethod;
+  const methodToUseUpper = (typeof methodToUse === "string" ? methodToUse : String(methodToUse)).toUpperCase();
+  const methodRequiresReceipt = ["TRANSFER", "DEBIT", "CREDIT", "OTHER"].includes(methodToUseUpper);
+
   async function handleAddNewPayment() {
     setError(null);
     const num = parseInt(newPaymentAmount.replace(/\D/g, ""), 10);
@@ -101,12 +106,38 @@ export function EditPaymentModal({
       setError(`El monto no puede superar lo pendiente (${formatCLP(pendiente)})`);
       return;
     }
+    if (methodRequiresReceipt && !receiptFile) {
+      setError("Debe subir el comprobante de pago (transferencia, débito, crédito u otro).");
+      return;
+    }
     setAddingNew(true);
-    const methodToUse = useSameMethodAsAbono ? metodoAbonoInicial : newPaymentMethod;
+    let receiptUrl: string | null = null;
+    let receiptHash: string | null = null;
+    if (receiptFile) {
+      try {
+        const fd = new FormData();
+        fd.append("photo", receiptFile);
+        const res = await fetch("/api/upload/payment-receipt", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok || !data.url) {
+          setAddingNew(false);
+          setError(data.error || "Error al subir el comprobante");
+          return;
+        }
+        receiptUrl = data.url;
+        receiptHash = data.hash ?? null;
+      } catch (err) {
+        setAddingNew(false);
+        setError(err instanceof Error ? err.message : "Error al subir el comprobante");
+        return;
+      }
+    }
     const result = await completePaymentWithRest(
       payment.id,
       num,
-      methodToUse.toUpperCase() as PaymentMethodValue
+      methodToUseUpper as PaymentMethodValue,
+      receiptUrl,
+      receiptHash
     );
     setAddingNew(false);
     if (result.error) {
@@ -224,9 +255,17 @@ export function EditPaymentModal({
                   inputMode="numeric"
                   value={formatThousands(newPaymentAmount)}
                   onChange={(e) => setNewPaymentAmount(e.target.value.replace(/\D/g, ""))}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 ${(parseInt(newPaymentAmount.replace(/\D/g, ""), 10) || 0) > pendiente ? "border-[var(--destructive)] bg-[var(--destructive)]/5 focus:ring-[var(--destructive)]" : "border-[var(--border)] bg-[var(--card)] focus:ring-[var(--primary)]"}`}
                   placeholder={formatThousands(String(pendiente))}
                 />
+                {pendiente > 0 && (
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">Máximo: {formatCLP(pendiente)}</p>
+                )}
+                {(parseInt(newPaymentAmount.replace(/\D/g, ""), 10) || 0) > pendiente && pendiente > 0 && (
+                  <p className="mt-1.5 text-sm font-medium text-[var(--destructive)]" role="alert">
+                    El monto no puede superar lo pendiente ({formatCLP(pendiente)}).
+                  </p>
+                )}
               </div>
               <div>
                 <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">
@@ -259,7 +298,10 @@ export function EditPaymentModal({
                     <div className="pl-7 pt-1">
                       <CustomSelect
                         value={newPaymentMethod}
-                        onChange={(v) => setNewPaymentMethod(v as typeof newPaymentMethod)}
+                        onChange={(v) => {
+                          setNewPaymentMethod(v as typeof newPaymentMethod);
+                          if (["transfer", "debit", "credit", "other"].includes(String(v).toLowerCase())) setReceiptFile(null);
+                        }}
                         placeholder="Seleccionar método"
                         options={(Object.keys(METHOD_LABELS) as (keyof typeof METHOD_LABELS)[]).map((m) => ({
                           value: m,
@@ -269,12 +311,40 @@ export function EditPaymentModal({
                       />
                     </div>
                   )}
+                  {methodRequiresReceipt && (
+                    <div className="pt-2">
+                      <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">
+                        Comprobante de pago *
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        id="edit-payment-receipt"
+                        onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                      />
+                      <label
+                        htmlFor="edit-payment-receipt"
+                        className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-sm text-[var(--muted)] hover:bg-[var(--muted)]/10 cursor-pointer"
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                        {receiptFile ? receiptFile.name : "Subir comprobante"}
+                      </label>
+                      <p className="mt-0.5 text-xs text-[var(--muted)]">Obligatorio cuando el método no es efectivo.</p>
+                    </div>
+                  )}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handleAddNewPayment}
-                disabled={editingDisabled || addingNew}
+                disabled={
+                  editingDisabled ||
+                  addingNew ||
+                  (methodRequiresReceipt && !receiptFile) ||
+                  (parseInt(newPaymentAmount.replace(/\D/g, ""), 10) || 0) > pendiente ||
+                  (parseInt(newPaymentAmount.replace(/\D/g, ""), 10) || 0) <= 0
+                }
                 className="w-full rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {addingNew ? "Registrando…" : "Registrar pago"}

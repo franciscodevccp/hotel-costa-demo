@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, ImagePlus } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { registerFirstPayment } from "@/app/dashboard/payments/actions";
 
@@ -47,8 +47,11 @@ export function FirstPaymentModal({
 }) {
   const [amount, setAmount] = useState(String(reservation.totalAmount).replace(/\D/g, ""));
   const [method, setMethod] = useState<"CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER">("CASH");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const methodRequiresReceipt = ["TRANSFER", "DEBIT", "CREDIT", "OTHER"].includes(method);
 
   useEffect(() => {
     setAmount(String(reservation.totalAmount).replace(/\D/g, ""));
@@ -70,8 +73,33 @@ export function FirstPaymentModal({
       setError("Ingrese un monto válido");
       return;
     }
+    if (methodRequiresReceipt && amountNum > 0 && !receiptFile) {
+      setError("Debe subir el comprobante de pago (transferencia, débito, crédito u otro).");
+      return;
+    }
     setSaving(true);
-    const result = await registerFirstPayment(reservation.reservationId, amountNum, method);
+    let receiptUrl: string | null = null;
+    let receiptHash: string | null = null;
+    if (receiptFile) {
+      try {
+        const fd = new FormData();
+        fd.append("photo", receiptFile);
+        const res = await fetch("/api/upload/payment-receipt", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok || !data.url) {
+          setSaving(false);
+          setError(data.error || "Error al subir el comprobante");
+          return;
+        }
+        receiptUrl = data.url;
+        receiptHash = data.hash ?? null;
+      } catch (err) {
+        setSaving(false);
+        setError(err instanceof Error ? err.message : "Error al subir el comprobante");
+        return;
+      }
+    }
+    const result = await registerFirstPayment(reservation.reservationId, amountNum, method, receiptUrl, receiptHash);
     setSaving(false);
     if (result?.error) {
       setError(result.error);
@@ -144,7 +172,10 @@ export function FirstPaymentModal({
               </label>
               <CustomSelect
                 value={method}
-                onChange={(v) => setMethod(v as typeof method)}
+                onChange={(v) => {
+                  setMethod(v as typeof method);
+                  if (v === "CASH") setReceiptFile(null);
+                }}
                 options={(["CASH", "DEBIT", "CREDIT", "TRANSFER", "OTHER"] as const).map((m) => ({
                   value: m,
                   label: METHOD_LABELS[m.toLowerCase()],
@@ -153,6 +184,28 @@ export function FirstPaymentModal({
                 className="w-full"
               />
             </div>
+            {methodRequiresReceipt && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">
+                  Comprobante de pago *
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="first-payment-receipt"
+                  onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                />
+                <label
+                  htmlFor="first-payment-receipt"
+                  className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)]/60 px-4 py-3 text-sm text-[var(--muted)] hover:bg-[var(--muted)]/10 cursor-pointer"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  {receiptFile ? receiptFile.name : "Subir comprobante (transferencia, débito, crédito)"}
+                </label>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">Obligatorio cuando el método no es efectivo.</p>
+              </div>
+            )}
           </div>
           {error && (
             <p className="mt-3 text-sm text-[var(--destructive)]">{error}</p>
@@ -167,7 +220,11 @@ export function FirstPaymentModal({
             </button>
             <button
               type="submit"
-              disabled={saving || !(parseInt(amount.replace(/\D/g, ""), 10) > 0)}
+              disabled={
+                saving ||
+                !(parseInt(amount.replace(/\D/g, ""), 10) > 0) ||
+                (methodRequiresReceipt && !receiptFile)
+              }
               className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary)]/90 disabled:opacity-50"
             >
               {saving ? "Guardando…" : "Registrar pago"}

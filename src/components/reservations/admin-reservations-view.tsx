@@ -4,11 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone, ImagePlus } from "lucide-react";
+import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone, ImagePlus, Receipt, Trash2 } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, deleteReservation, updateReservationEntryCard, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { SyncMotopressButton } from "./sync-motopress-button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -34,6 +34,24 @@ export interface ReservationDisplay {
     folio_number?: string;
     processed_by_name?: string;
     entry_card_image_url?: string;
+    consumptions?: {
+        id: string;
+        consumption_number: string;
+        description?: string;
+        amount: number;
+        method: string;
+        card_image_url?: string;
+        created_at: string;
+    }[];
+    payments?: {
+        id: string;
+        amount: number;
+        method: string;
+        paid_at: string;
+        receipt_url?: string;
+        receipt_urls?: string[];
+        receipt_entries?: { url: string; amount: number; method: string }[];
+    }[];
 }
 
 /** Estilos del calendario por estado de reserva (colores bien diferenciados entre sí) */
@@ -109,7 +127,8 @@ export function AdminReservationsView({
     const [newCheckOut, setNewCheckOut] = useState("");
     const [newTotalAmount, setNewTotalAmount] = useState(0);
     const [newDownPayment, setNewDownPayment] = useState(0);
-    const [newDownPaymentMethod, setNewDownPaymentMethod] = useState<"CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER" | "PURCHASE_ORDER">("CASH");
+    const [newDownPaymentMethod, setNewDownPaymentMethod] = useState<"" | "CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER" | "PURCHASE_ORDER">("");
+    const [newDownPaymentReceiptFile, setNewDownPaymentReceiptFile] = useState<File | null>(null);
     const [newPaymentTermDays, setNewPaymentTermDays] = useState<number>(0);
     const [newNotes, setNewNotes] = useState("");
     const [newFolioNumber, setNewFolioNumber] = useState("");
@@ -124,6 +143,17 @@ export function AdminReservationsView({
     const [entryCardUrlOverride, setEntryCardUrlOverride] = useState<Record<string, string>>({});
     const [uploadingEntryCard, setUploadingEntryCard] = useState(false);
     const [entryCardPreviewUrl, setEntryCardPreviewUrl] = useState<string | null>(null);
+    const [consumptionFormOpen, setConsumptionFormOpen] = useState(false);
+    const [consumptionPreviewUrl, setConsumptionPreviewUrl] = useState<string | null>(null);
+    const [paymentReceiptPreviewUrl, setPaymentReceiptPreviewUrl] = useState<string | null>(null);
+    const [consumptionCardUrlOverride, setConsumptionCardUrlOverride] = useState<Record<string, string>>({});
+    const [consumptionUploadingId, setConsumptionUploadingId] = useState<string | null>(null);
+    const [consumptionFormNumber, setConsumptionFormNumber] = useState("");
+    const [consumptionFormDescription, setConsumptionFormDescription] = useState("");
+    const [consumptionFormAmount, setConsumptionFormAmount] = useState(0);
+    const [consumptionFormPhotoFile, setConsumptionFormPhotoFile] = useState<File | null>(null);
+    const [consumptionFormSaving, setConsumptionFormSaving] = useState(false);
+    const [consumptionFormError, setConsumptionFormError] = useState<string | null>(null);
     const [bulkSaving, setBulkSaving] = useState(false);
     const [localGuests, setLocalGuests] = useState<GuestOption[]>(guests);
     const [newGuestOpen, setNewGuestOpen] = useState(false);
@@ -364,7 +394,7 @@ export function AdminReservationsView({
                     <SyncMotopressButton />
                     <button
                         type="button"
-                        onClick={() => setNewReservationOpen(true)}
+                        onClick={() => { setNewReservationOpen(true); setNewDownPaymentReceiptFile(null); setNewDownPaymentMethod(""); }}
                         className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto"
                     >
                         <Plus className="h-4 w-4" />
@@ -422,20 +452,48 @@ export function AdminReservationsView({
                           setReservationState({ error: "Indique fechas de check-in y check-out" });
                           return;
                         }
+                        const methodRequiresReceipt = ["TRANSFER", "DEBIT", "CREDIT", "OTHER"].includes(newDownPaymentMethod) && newDownPayment > 0;
+                        if (methodRequiresReceipt && !newDownPaymentReceiptFile) {
+                          setReservationState({ error: "Debe subir el comprobante de pago (transferencia, débito, crédito u otro)." });
+                          return;
+                        }
                         setBulkSaving(true);
                         setReservationState({});
+                        let receiptUrl: string | null = null;
+                        let receiptHash: string | null = null;
+                        if (newDownPaymentReceiptFile) {
+                          try {
+                            const fd = new FormData();
+                            fd.append("photo", newDownPaymentReceiptFile);
+                            const res = await fetch("/api/upload/payment-receipt", { method: "POST", body: fd });
+                            const data = await res.json();
+                            if (!res.ok || !data.url) {
+                              setBulkSaving(false);
+                              setReservationState({ error: data.error || "Error al subir el comprobante" });
+                              return;
+                            }
+                            receiptUrl = data.url;
+                            receiptHash = data.hash ?? null;
+                          } catch (err) {
+                            setBulkSaving(false);
+                            setReservationState({ error: err instanceof Error ? err.message : "Error al subir el comprobante" });
+                            return;
+                          }
+                        }
                         const result = await createReservationsBulk({
                           guestId: newGuestId,
                           checkIn: newCheckIn,
                           checkOut: newCheckOut,
                           rooms: validLines,
                           downPayment: newDownPayment,
-                          downPaymentMethod: newDownPaymentMethod,
+                          downPaymentMethod: newDownPaymentMethod || "CASH",
                           paymentTermDays: newDownPaymentMethod === "PURCHASE_ORDER" && newPaymentTermDays >= 1 ? newPaymentTermDays : undefined,
                           notes: newNotes || undefined,
                           customTotalAmount: newTotalAmount > 0 ? newTotalAmount : undefined,
                           folioNumber: newFolioNumber.trim(),
                           processedByName: newProcessedByName.trim(),
+                          downPaymentReceiptUrl: receiptUrl,
+                          downPaymentReceiptHash: receiptHash,
                         });
                         setBulkSaving(false);
                         if (result.error) {
@@ -686,7 +744,14 @@ export function AdminReservationsView({
                             El abonado excede el total. Corrija el monto para poder crear la reserva.
                           </p>
                         )}
-                        <div className="mt-2">
+                        <div className={`mt-2 ${!(
+                          newFolioNumber?.trim() &&
+                          newProcessedByName?.trim() &&
+                          newGuestId &&
+                          newCheckIn &&
+                          newCheckOut &&
+                          roomLines.some((l) => l.roomId && l.numGuests >= 1)
+                        ) ? "pointer-events-none opacity-60" : ""}`}>
                           <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Método de pago</label>
                           <CustomSelect
                             value={newDownPaymentMethod}
@@ -695,6 +760,7 @@ export function AdminReservationsView({
                               setNewDownPaymentMethod(method);
                               if (method === "PURCHASE_ORDER") setNewDownPayment(0);
                               else setNewPaymentTermDays(0);
+                              if (method === "CASH" || method === "PURCHASE_ORDER") setNewDownPaymentReceiptFile(null);
                             }}
                             options={[
                               { value: "CASH", label: "Efectivo" },
@@ -706,11 +772,43 @@ export function AdminReservationsView({
                                 : []),
                               { value: "OTHER", label: "Otro" },
                             ]}
-                            placeholder="Seleccionar método"
+                            placeholder="Método de pago"
                             aria-label="Método de pago"
                           />
-                          <input type="hidden" name="downPaymentMethod" value={newDownPaymentMethod === "PURCHASE_ORDER" ? "OTHER" : newDownPaymentMethod} />
+                          {!(
+                            newFolioNumber?.trim() &&
+                            newProcessedByName?.trim() &&
+                            newGuestId &&
+                            newCheckIn &&
+                            newCheckOut &&
+                            roomLines.some((l) => l.roomId && l.numGuests >= 1)
+                          ) && (
+                            <p className="mt-1 text-xs text-[var(--muted)]">
+                              Complete folio, recepcionista, huésped, fechas y habitaciones para habilitar.
+                            </p>
+                          )}
+                          <input type="hidden" name="downPaymentMethod" value={newDownPaymentMethod === "PURCHASE_ORDER" ? "OTHER" : (newDownPaymentMethod || "CASH")} />
                         </div>
+                        {["TRANSFER", "DEBIT", "CREDIT", "OTHER"].includes(newDownPaymentMethod) && newDownPayment > 0 && (
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Comprobante de pago *</label>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              id="new-reservation-receipt"
+                              onChange={(e) => setNewDownPaymentReceiptFile(e.target.files?.[0] ?? null)}
+                            />
+                            <label
+                              htmlFor="new-reservation-receipt"
+                              className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)]/60 px-4 py-3 text-sm text-[var(--muted)] hover:bg-[var(--muted)]/10 cursor-pointer"
+                            >
+                              <ImagePlus className="h-4 w-4" />
+                              {newDownPaymentReceiptFile ? newDownPaymentReceiptFile.name : "Subir comprobante (transferencia, débito, crédito)"}
+                            </label>
+                            <p className="mt-0.5 text-xs text-[var(--muted)]">Obligatorio cuando el método no es efectivo. Foto o captura del comprobante.</p>
+                          </div>
+                        )}
                         {newDownPaymentMethod === "PURCHASE_ORDER" && (
                           <div className="mt-3 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-3">
                             <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Días hábiles para pagar</label>
@@ -761,7 +859,8 @@ export function AdminReservationsView({
                             !newProcessedByName?.trim() ||
                             roomLines.every((l) => !l.roomId) ||
                             (newTotalAmount > 0 && newDownPayment > newTotalAmount) ||
-                            (newDownPaymentMethod === "PURCHASE_ORDER" && (!newPaymentTermDays || newPaymentTermDays < 1))
+                            (newDownPaymentMethod === "PURCHASE_ORDER" && (!newPaymentTermDays || newPaymentTermDays < 1)) ||
+                            (["TRANSFER", "DEBIT", "CREDIT", "OTHER"].includes(newDownPaymentMethod) && newDownPayment > 0 && !newDownPaymentReceiptFile)
                           }
                           loading={bulkSaving}
                         />
@@ -1561,6 +1660,43 @@ export function AdminReservationsView({
                                 </div>
                             </section>
 
+                            {selectedReservation.payments && selectedReservation.payments.some((p) => (p.receipt_entries?.length ?? 0) > 0 || (p.receipt_urls?.length ?? 0) > 0 || p.receipt_url) && (
+                                <section>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
+                                        Comprobantes de pago
+                                    </h4>
+                                    <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/40 p-4 space-y-3">
+                                        <ul className="space-y-3">
+                                            {selectedReservation.payments.flatMap((p) => {
+                                                const methodLabels: Record<string, string> = { CASH: "Efectivo", DEBIT: "Débito", CREDIT: "Crédito", TRANSFER: "Transferencia", OTHER: "Otro" };
+                                                const urls = p.receipt_urls?.length ? p.receipt_urls : (p.receipt_url ? [p.receipt_url] : []);
+                                                const entryByUrl = new Map((p.receipt_entries ?? []).map((e) => [e.url, e]));
+                                                return urls.map((url, i) => {
+                                                  const entry = entryByUrl.get(url);
+                                                  const amount = entry?.amount ?? p.amount;
+                                                  const method = entry?.method ?? p.method;
+                                                  return (
+                                                    <li key={`${p.id}-${i}`} className="flex items-center gap-3">
+                                                      <button
+                                                          type="button"
+                                                          onClick={() => setPaymentReceiptPreviewUrl(url)}
+                                                          className="rounded-lg overflow-hidden border border-[var(--border)] w-16 h-16 flex-shrink-0 hover:ring-2 hover:ring-[var(--primary)]"
+                                                      >
+                                                          <img src={url} alt="Comprobante" className="w-full h-full object-cover" />
+                                                      </button>
+                                                      <div>
+                                                          <p className="text-sm font-medium">{formatCLP(amount)} · {methodLabels[method] ?? method}</p>
+                                                          <p className="text-xs text-[var(--muted)]">Clic en la imagen para ver en grande</p>
+                                                      </div>
+                                                    </li>
+                                                  );
+                                                });
+                                            })}
+                                        </ul>
+                                    </div>
+                                </section>
+                            )}
+
                             {/* Folio, recepcionista y foto tarjeta de ingreso */}
                             <section>
                                 <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
@@ -1644,6 +1780,117 @@ export function AdminReservationsView({
                                 </div>
                             </section>
 
+                            <section>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
+                                    Tarjeta de consumo
+                                </h4>
+                                <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/40 p-4 space-y-3">
+                                    {(() => {
+                                        const consumptions = selectedReservation.consumptions ?? [];
+                                        const formatCLPConsumption = (n: number) => n.toLocaleString("es-CL", { style: "currency", currency: "CLP", minimumFractionDigits: 0 });
+                                        const methodLabels: Record<string, string> = { CASH: "Efectivo", DEBIT: "Débito", CREDIT: "Crédito", TRANSFER: "Transferencia", OTHER: "Otro" };
+                                        return (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setConsumptionFormOpen(true);
+                                                        setConsumptionFormNumber("");
+                                                        setConsumptionFormDescription("");
+                                                        setConsumptionFormAmount(0);
+                                                        setConsumptionFormPhotoFile(null);
+                                                        setConsumptionFormError(null);
+                                                    }}
+                                                    className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--primary)]/50 bg-[var(--primary)]/5 px-4 py-2.5 text-sm font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10"
+                                                >
+                                                    <Receipt className="h-4 w-4" />
+                                                    Utilizar tarjeta de consumo
+                                                </button>
+                                                {consumptions.length > 0 && (
+                                                    <ul className="space-y-3 mt-3 border-t border-[var(--border)] pt-3">
+                                                        {consumptions.map((c) => {
+                                                            const photoUrl = consumptionCardUrlOverride[c.id] ?? c.card_image_url;
+                                                            const isUploading = consumptionUploadingId === c.id;
+                                                            return (
+                                                                <li key={c.id} className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <p className="font-medium text-[var(--foreground)]">N° {c.consumption_number}</p>
+                                                                        {c.description && <p className="text-sm text-[var(--muted)]">{c.description}</p>}
+                                                                        <p className="text-sm mt-1">{formatCLPConsumption(c.amount)} · {methodLabels[c.method] ?? c.method}</p>
+                                                                    </div>
+                                                                    <div className="shrink-0 flex items-center gap-2">
+                                                                        {photoUrl ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setConsumptionPreviewUrl(photoUrl)}
+                                                                                className="rounded-lg overflow-hidden border border-[var(--border)] w-14 h-14 flex items-center justify-center hover:ring-2 hover:ring-[var(--primary)]"
+                                                                            >
+                                                                                <img src={photoUrl} alt="Tarjeta de consumo" className="w-full h-full object-cover" />
+                                                                            </button>
+                                                                        ) : (
+                                                                            <div className="w-14 h-14 rounded-lg border border-dashed border-[var(--border)] flex items-center justify-center bg-[var(--muted)]/20">
+                                                                                <input
+                                                                                    type="file"
+                                                                                    accept="image/*"
+                                                                                    className="hidden"
+                                                                                    id={`consumption-photo-${c.id}`}
+                                                                                    onChange={async (e) => {
+                                                                                        const file = e.target.files?.[0];
+                                                                                        if (!file) return;
+                                                                                        e.target.value = "";
+                                                                                        setConsumptionUploadingId(c.id);
+                                                                                        try {
+                                                                                            const fd = new FormData();
+                                                                                            fd.append("photo", file);
+                                                                                            const res = await fetch("/api/upload/consumption-card", { method: "POST", body: fd });
+                                                                                            const data = await res.json();
+                                                                                            if (!res.ok || !data.url) {
+                                                                                                alert(data.error || "Error al subir");
+                                                                                                return;
+                                                                                            }
+                                                                                            const result = await updateConsumptionCardImage(c.id, data.url);
+                                                                                            if (result?.success) {
+                                                                                                setConsumptionCardUrlOverride((prev) => ({ ...prev, [c.id]: data.url }));
+                                                                                                router.refresh();
+                                                                                            } else if (result?.error) alert(result.error);
+                                                                                        } finally {
+                                                                                            setConsumptionUploadingId(null);
+                                                                                        }
+                                                                                    }}
+                                                                                />
+                                                                                <label htmlFor={`consumption-photo-${c.id}`} className={`cursor-pointer p-2 flex items-center justify-center ${isUploading ? "opacity-50 pointer-events-none" : ""}`} title="Subir foto">
+                                                                                    <ImagePlus className="h-5 w-5 text-[var(--muted)]" />
+                                                                                </label>
+                                                                            </div>
+                                                                        )}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={async () => {
+                                                                                if (!confirm("¿Eliminar este consumo?")) return;
+                                                                                const res = await deleteConsumption(c.id);
+                                                                                if (res?.success) {
+                                                                                    setConsumptionCardUrlOverride((prev) => { const next = { ...prev }; delete next[c.id]; return next; });
+                                                                                    router.refresh();
+                                                                                } else if (res?.error) alert(res.error);
+                                                                            }}
+                                                                            className="p-1.5 rounded text-[var(--destructive)] hover:bg-[var(--destructive)]/10"
+                                                                            title="Eliminar consumo"
+                                                                        >
+                                                                            <Trash2 className="h-4 w-4" />
+                                                                        </button>
+                                                                    </div>
+                                                                </li>
+                                                            );
+                                                        })}
+                                                    </ul>
+                                                )}
+                                                <p className="text-xs text-[var(--muted)]">Consumos durante la estadía (bebidas, minibar, etc.). Clic en la imagen para ver en detalle.</p>
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            </section>
+
                             {selectedReservation.special_requests && (
                                 <section>
                                     <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
@@ -1660,7 +1907,7 @@ export function AdminReservationsView({
                         <div className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-4">
                             <button
                                 type="button"
-                                onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); }}
+                                onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); setConsumptionFormOpen(false); setConsumptionPreviewUrl(null); setPaymentReceiptPreviewUrl(null); }}
                                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
                             >
                                 Cerrar
@@ -1694,6 +1941,170 @@ export function AdminReservationsView({
                     className="max-h-[90vh] max-w-full object-contain rounded-lg shadow-2xl"
                     onClick={(e) => e.stopPropagation()}
                   />
+                </div>,
+                document.body
+              )}
+
+            {/* Modal ver foto tarjeta de consumo en grande */}
+            {consumptionPreviewUrl && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center bg-black/80 p-4"
+                  onClick={() => setConsumptionPreviewUrl(null)}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Foto de la tarjeta de consumo"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setConsumptionPreviewUrl(null)}
+                    className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-[var(--foreground)] shadow-lg hover:bg-white"
+                    aria-label="Cerrar"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                  <img
+                    src={consumptionPreviewUrl}
+                    alt="Tarjeta de consumo"
+                    className="max-h-[90vh] max-w-full object-contain rounded-lg shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>,
+                document.body
+              )}
+
+            {/* Modal ver comprobante de pago en grande */}
+            {paymentReceiptPreviewUrl && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center bg-black/80 p-4"
+                  onClick={() => setPaymentReceiptPreviewUrl(null)}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Comprobante de pago"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setPaymentReceiptPreviewUrl(null)}
+                    className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-[var(--foreground)] shadow-lg hover:bg-white"
+                    aria-label="Cerrar"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                  <img
+                    src={paymentReceiptPreviewUrl}
+                    alt="Comprobante de pago"
+                    className="max-h-[90vh] max-w-full object-contain rounded-lg shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>,
+                document.body
+              )}
+
+            {/* Modal form Utilizar tarjeta de consumo */}
+            {consumptionFormOpen && selectedReservation && typeof document !== "undefined" &&
+              createPortal(
+                <div className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-black/60 p-4">
+                  <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-[var(--foreground)]">Tarjeta de consumo</h3>
+                      <button type="button" onClick={() => setConsumptionFormOpen(false)} className="rounded p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20"><X className="h-5 w-5" /></button>
+                    </div>
+                    {consumptionFormError && <p className="mb-3 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">{consumptionFormError}</p>}
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        setConsumptionFormError(null);
+                        const num = consumptionFormNumber.trim();
+                        if (!num) { setConsumptionFormError("Indique el número de consumo"); return; }
+                        setConsumptionFormSaving(true);
+                        try {
+                          let cardImageUrl: string | null = null;
+                          if (consumptionFormPhotoFile) {
+                            const fd = new FormData();
+                            fd.append("photo", consumptionFormPhotoFile);
+                            const res = await fetch("/api/upload/consumption-card", { method: "POST", body: fd });
+                            const data = await res.json();
+                            if (!res.ok || !data.url) {
+                              setConsumptionFormError(data.error || "Error al subir la imagen");
+                              setConsumptionFormSaving(false);
+                              return;
+                            }
+                            cardImageUrl = data.url;
+                          }
+                          const result = await createConsumption(selectedReservation.id, {
+                            consumptionNumber: num,
+                            description: consumptionFormDescription.trim() || null,
+                            amount: consumptionFormAmount,
+                            method: "CASH",
+                            cardImageUrl,
+                          });
+                          if (result?.success) {
+                            setConsumptionFormOpen(false);
+                            router.refresh();
+                          } else if (result?.error) setConsumptionFormError(result.error);
+                        } finally {
+                          setConsumptionFormSaving(false);
+                        }
+                      }}
+                      className="space-y-4"
+                    >
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Número de consumo *</label>
+                        <input
+                          type="text"
+                          value={consumptionFormNumber}
+                          onChange={(e) => setConsumptionFormNumber(e.target.value)}
+                          placeholder="Ej. 001, 002"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Descripción</label>
+                        <input
+                          type="text"
+                          value={consumptionFormDescription}
+                          onChange={(e) => setConsumptionFormDescription(e.target.value)}
+                          placeholder="Ej. Bebida, Minibar"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Valor (CLP)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={consumptionFormAmount > 0 ? consumptionFormAmount.toLocaleString("es-CL") : ""}
+                          onChange={(e) => setConsumptionFormAmount(parseInt(e.target.value.replace(/\D/g, ""), 10) || 0)}
+                          placeholder="0"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Foto de la tarjeta de consumo</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          id="consumption-form-photo"
+                          onChange={(e) => setConsumptionFormPhotoFile(e.target.files?.[0] ?? null)}
+                        />
+                        <label
+                          htmlFor="consumption-form-photo"
+                          className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)]/60 px-4 py-3 text-sm text-[var(--muted)] hover:bg-[var(--muted)]/10 cursor-pointer"
+                        >
+                          <ImagePlus className="h-4 w-4" />
+                          {consumptionFormPhotoFile ? consumptionFormPhotoFile.name : "Subir foto"}
+                        </label>
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button type="button" onClick={() => setConsumptionFormOpen(false)} className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium">Cancelar</button>
+                        <button type="submit" disabled={consumptionFormSaving} className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
+                          {consumptionFormSaving ? "Guardando…" : "Guardar"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>,
                 document.body
               )}

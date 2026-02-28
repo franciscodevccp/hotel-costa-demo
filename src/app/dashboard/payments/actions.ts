@@ -113,7 +113,9 @@ export type CompletePaymentWithRestState = { error?: string; success?: boolean }
 export async function completePaymentWithRest(
   paymentId: string,
   additionalAmount: number,
-  method: PaymentMethodValue
+  method: PaymentMethodValue,
+  receiptUrl?: string | null,
+  receiptHash?: string | null
 ): Promise<CompletePaymentWithRestState> {
   const session = await auth();
   if (!session?.user?.establishmentId) {
@@ -152,12 +154,34 @@ export async function completePaymentWithRest(
     const newMethods: PaymentMethod[] =
       isSameAsInitial || alreadyInList ? [...currentMethods] : [...currentMethods, method];
 
+    type ReceiptEntry = { url: string; amount: number; method: string; hash?: string };
+    const paymentWithUrls = payment as typeof payment & { receiptUrls?: string[]; receiptEntries?: ReceiptEntry[] | null };
+    const currentReceiptUrls =
+      paymentWithUrls.receiptUrls?.length ? paymentWithUrls.receiptUrls : (payment.receiptUrl ? [payment.receiptUrl] : []);
+    const newReceiptUrls = receiptUrl ? [...currentReceiptUrls, receiptUrl] : currentReceiptUrls;
+
+    const currentEntries = (paymentWithUrls.receiptEntries ?? []) as ReceiptEntry[];
+    if (receiptUrl && receiptHash) {
+      const alreadyUsed = currentEntries.some((e) => e.hash === receiptHash);
+      if (alreadyUsed) {
+        return {
+          error:
+            "Esta imagen ya fue usada como comprobante en esta reserva. Suba una imagen diferente para este pago.",
+        };
+      }
+    }
+    const newEntries: ReceiptEntry[] = receiptUrl
+      ? [...currentEntries, { url: receiptUrl, amount: Math.round(additionalAmount), method, hash: receiptHash ?? undefined }]
+      : currentEntries;
+
     await prisma.payment.update({
       where: { id: paymentId },
       data: {
         amount: newAmount,
         status: newStatus,
         additionalMethods: newMethods,
+        receiptUrls: newReceiptUrls,
+        ...(newEntries.length > 0 && { receiptEntries: newEntries as Parameters<typeof prisma.payment.update>[0]["data"] extends { receiptEntries?: infer J } ? J : never }),
       },
     });
     revalidatePath("/dashboard/payments");
@@ -176,7 +200,9 @@ export type RegisterFirstPaymentState = { error?: string; success?: boolean };
 export async function registerFirstPayment(
   reservationId: string,
   amount: number,
-  method: PaymentMethodValue
+  method: PaymentMethodValue,
+  receiptUrl?: string | null,
+  receiptHash?: string | null
 ): Promise<RegisterFirstPaymentState> {
   const session = await auth();
   if (!session?.user?.establishmentId || !session.user?.id) {
@@ -204,6 +230,11 @@ export async function registerFirstPayment(
     }
     const status = amount >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
 
+    const receiptUrls = receiptUrl ? [receiptUrl] : [];
+    const receiptEntries =
+      receiptUrl
+        ? [{ url: receiptUrl, amount: Math.round(amount), method, hash: receiptHash ?? undefined }]
+        : undefined;
     await prisma.payment.create({
       data: {
         establishmentId: session.user.establishmentId,
@@ -213,7 +244,10 @@ export async function registerFirstPayment(
         method,
         status,
         notes: "Primer pago registrado desde Pagos",
-      },
+        receiptUrl: receiptUrl ?? null,
+        receiptUrls,
+        ...(receiptEntries && { receiptEntries }),
+      } as Parameters<typeof prisma.payment.create>[0]["data"],
     });
     revalidatePath("/dashboard/payments");
     revalidatePath("/dashboard/pending-payments");

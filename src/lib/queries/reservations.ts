@@ -21,6 +21,7 @@ export async function getReservations(establishmentId: string, status?: string) 
       guest: true,
       room: true,
       payments: true,
+      consumptions: { orderBy: { createdAt: "asc" } },
       processedBy: { select: { id: true, fullName: true } },
     },
     // checkIn desc: más recientes primero; createdAt desc: misma fecha = más recientes arriba, así no “baja” al confirmar

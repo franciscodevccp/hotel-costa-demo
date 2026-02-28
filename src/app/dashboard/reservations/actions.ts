@@ -168,13 +168,17 @@ export async function createReservationsBulk(payload: {
   folioNumber: string;
   /** Nombre del recepcionista/trabajador que gestiona la reserva (obligatorio) */
   processedByName: string;
+  /** URL del comprobante de pago (cuando método es transferencia/débito/crédito/otro) */
+  downPaymentReceiptUrl?: string | null;
+  /** Hash del comprobante (para detectar imagen duplicada si luego suben el mismo en Pagos) */
+  downPaymentReceiptHash?: string | null;
 }): Promise<CreateReservationsBulkState> {
   const session = await auth();
   if (!session?.user?.establishmentId) {
     return { error: "No autorizado" };
   }
 
-  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes, customTotalAmount, folioNumber, processedByName } = payload;
+  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes, customTotalAmount, folioNumber, processedByName, downPaymentReceiptUrl, downPaymentReceiptHash } = payload;
   const folioTrim = folioNumber?.trim() ?? "";
   if (!folioTrim) return { error: "El número de folio (tarjeta de ingreso) es obligatorio" };
   const nameTrim = processedByName?.trim() ?? "";
@@ -207,6 +211,11 @@ export async function createReservationsBulk(payload: {
   const method = VALID_PAYMENT_METHODS.includes(payload.downPaymentMethod as (typeof VALID_PAYMENT_METHODS)[number])
     ? (payload.downPaymentMethod as (typeof VALID_PAYMENT_METHODS)[number])
     : "OTHER";
+
+  const requiresReceipt = !isPurchaseOrder && method !== "CASH" && downPayment > 0;
+  if (requiresReceipt && !(downPaymentReceiptUrl?.trim())) {
+    return { error: "Debe subir el comprobante de pago cuando el método es transferencia, débito, crédito u otro." };
+  }
 
   const userId = session.user?.id;
   if (!userId) return { error: "No autorizado" };
@@ -276,6 +285,12 @@ export async function createReservationsBulk(payload: {
 
       const amountForThis = Math.min(downPaymentRemaining, totalAmount);
       if (amountForThis > 0) {
+        const isFirstPayment = downPaymentRemaining === downPayment;
+        const receiptUrls = isFirstPayment && downPaymentReceiptUrl ? [downPaymentReceiptUrl] : [];
+        const receiptEntries =
+          isFirstPayment && downPaymentReceiptUrl
+            ? [{ url: downPaymentReceiptUrl, amount: amountForThis, method: isPurchaseOrder ? "OTHER" : method, hash: downPaymentReceiptHash ?? undefined }]
+            : undefined;
         await prisma.payment.create({
           data: {
             establishmentId,
@@ -285,7 +300,10 @@ export async function createReservationsBulk(payload: {
             method: isPurchaseOrder ? "OTHER" : method,
             status: amountForThis >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL,
             notes: "Abono al crear reserva",
-          },
+            receiptUrl: isFirstPayment ? (downPaymentReceiptUrl ?? null) : null,
+            receiptUrls,
+            ...(receiptEntries && { receiptEntries }),
+          } as Parameters<typeof prisma.payment.create>[0]["data"],
         });
         downPaymentRemaining -= amountForThis;
       }
@@ -402,6 +420,102 @@ export async function updateReservationEntryCard(
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al guardar la foto";
+    return { error: message };
+  }
+}
+
+export type CreateConsumptionState = { error?: string; success?: boolean };
+
+export async function createConsumption(
+  reservationId: string,
+  data: {
+    consumptionNumber: string;
+    description?: string | null;
+    amount: number;
+    method: "CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER";
+    cardImageUrl?: string | null;
+  }
+): Promise<CreateConsumptionState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  const num = data.consumptionNumber?.trim();
+  if (!num) return { error: "Indique el número de consumo" };
+  if (data.amount < 0) return { error: "El monto debe ser mayor o igual a 0" };
+  try {
+    const reservation = await prisma.reservation.findFirst({
+      where: { id: reservationId, establishmentId: session.user.establishmentId },
+    });
+    if (!reservation) return { error: "Reserva no encontrada" };
+    await prisma.consumption.create({
+      data: {
+        reservationId,
+        consumptionNumber: num,
+        description: data.description?.trim() || null,
+        amount: data.amount,
+        method: data.method,
+        cardImageUrl: data.cardImageUrl || null,
+      },
+    });
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al crear el consumo";
+    return { error: message };
+  }
+}
+
+export type UpdateConsumptionCardImageState = { error?: string; success?: boolean };
+
+export async function updateConsumptionCardImage(
+  consumptionId: string,
+  cardImageUrl: string
+): Promise<UpdateConsumptionCardImageState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  try {
+    const consumption = await prisma.consumption.findFirst({
+      where: { id: consumptionId },
+      include: { reservation: { select: { establishmentId: true } } },
+    });
+    if (!consumption || consumption.reservation.establishmentId !== session.user.establishmentId) {
+      return { error: "Consumo no encontrado" };
+    }
+    await prisma.consumption.update({
+      where: { id: consumptionId },
+      data: { cardImageUrl },
+    });
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al guardar la foto";
+    return { error: message };
+  }
+}
+
+export type DeleteConsumptionState = { error?: string; success?: boolean };
+
+export async function deleteConsumption(consumptionId: string): Promise<DeleteConsumptionState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  try {
+    const consumption = await prisma.consumption.findFirst({
+      where: { id: consumptionId },
+      include: { reservation: { select: { establishmentId: true } } },
+    });
+    if (!consumption || consumption.reservation.establishmentId !== session.user.establishmentId) {
+      return { error: "Consumo no encontrado" };
+    }
+    await prisma.consumption.delete({ where: { id: consumptionId } });
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al eliminar el consumo";
     return { error: message };
   }
 }

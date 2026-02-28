@@ -24,6 +24,7 @@ export default async function ReservationsPage() {
       const guest = r.guest!;
       const room = r.room!;
       const paid = r.payments.reduce((s, p) => s + p.amount, 0);
+      const consumptions = (r as { consumptions?: { id: string; consumptionNumber: string; description: string | null; amount: number; method: string; cardImageUrl: string | null; createdAt: Date }[] }).consumptions ?? [];
       return {
         id: r.id,
         guest_name: guest.fullName,
@@ -44,6 +45,33 @@ export default async function ReservationsPage() {
         folio_number: r.folioNumber ?? undefined,
         processed_by_name: (r as { processedByName?: string | null }).processedByName ?? r.processedBy?.fullName ?? undefined,
         entry_card_image_url: r.entryCardImageUrl ?? undefined,
+        consumptions: consumptions.map((c) => ({
+          id: c.id,
+          consumption_number: c.consumptionNumber,
+          description: c.description ?? undefined,
+          amount: c.amount,
+          method: c.method,
+          card_image_url: c.cardImageUrl ?? undefined,
+          created_at: format(c.createdAt, "yyyy-MM-dd"),
+        })),
+        payments: r.payments.map((p) => {
+          const prismaPayment = p as { receiptUrl?: string | null; receiptUrls?: string[]; receiptEntries?: { url: string; amount: number; method: string }[] | null };
+          const receiptUrls = prismaPayment.receiptUrls?.length
+            ? prismaPayment.receiptUrls
+            : prismaPayment.receiptUrl
+              ? [prismaPayment.receiptUrl]
+              : [];
+          const receipt_entries = Array.isArray(prismaPayment.receiptEntries) ? prismaPayment.receiptEntries : null;
+          return {
+            id: p.id,
+            amount: p.amount,
+            method: p.method,
+            paid_at: format(p.paidAt, "yyyy-MM-dd"),
+            receipt_url: prismaPayment.receiptUrl ?? undefined,
+            receipt_urls: receiptUrls,
+            receipt_entries: receipt_entries ?? undefined,
+          };
+        }),
       };
     });
   const roomNumbers = rooms.map((r) => r.roomNumber).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));

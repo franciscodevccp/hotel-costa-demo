@@ -171,6 +171,7 @@ model Reservation {
   guest         Guest         @relation(fields: [guestId], references: [id])
   processedBy   User?         @relation("ProcessedBy", fields: [processedById], references: [id])
   payments      Payment[]
+  consumptions  Consumption[]
 
   @@index([establishmentId, status])
   @@index([roomId, checkIn, checkOut])
@@ -208,12 +209,34 @@ model Payment {
   notes           String?
   paidAt          DateTime       @default(now())
   createdAt       DateTime       @default(now())
+  /// Comprobante de pago (transferencia/débito/crédito) — legacy; usar receiptUrls
+  receiptUrl      String?
+  /// Todos los comprobantes (cada abono puede tener uno)
+  receiptUrls     String[]     @default([])
+  /// Por cada comprobante: url, monto y método (para mostrar correctamente en detalle)
+  receiptEntries  Json?        // [{ url, amount, method }]
 
   establishment Establishment @relation(fields: [establishmentId], references: [id])
   reservation   Reservation   @relation(fields: [reservationId], references: [id])
   registeredBy  User          @relation("RegisteredBy", fields: [registeredById], references: [id])
 
   @@index([establishmentId, paidAt])
+  @@index([reservationId])
+}
+
+// ─── Consumo durante la estadía (tarjeta de consumo) ────────────────────────
+model Consumption {
+  id                String        @id @default(cuid())
+  reservationId     String
+  consumptionNumber String        // N° folio del consumo (ej. 001, 002)
+  description       String?       // ej. "Bebida", "Minibar"
+  amount            Int           // CLP
+  method            PaymentMethod
+  cardImageUrl      String?       // Foto de la tarjeta de consumo
+  createdAt         DateTime      @default(now())
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
   @@index([reservationId])
 }
 
