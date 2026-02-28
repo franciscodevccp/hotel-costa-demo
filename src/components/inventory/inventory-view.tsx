@@ -35,6 +35,8 @@ export interface InventoryProduct {
   entradas?: number;
   salidas?: number;
   folio?: string;
+  lastEntryAt?: Date | string | null;
+  lastExitAt?: Date | string | null;
 }
 
 type SortColumn = "product" | "category" | "stock" | "folio" | "entradas" | "salidas";
@@ -60,7 +62,23 @@ function toInventoryProduct(p: ProductRow): InventoryProduct {
     entradas: p.entradas ?? 0,
     salidas: p.salidas ?? 0,
     folio: p.folio ?? undefined,
+    lastEntryAt: p.lastEntryAt ?? undefined,
+    lastExitAt: p.lastExitAt ?? undefined,
   };
+}
+
+/** Formato fecha y hora para última actualización (ej: 28 feb 2026, 14:30) */
+function formatLastUpdate(date: Date | string | null | undefined): string {
+  if (date == null) return "—";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("es-CL", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function InventoryView({ products: initialProducts }: { products: ProductRow[] }) {
@@ -310,7 +328,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
 
       {/* Tabla de productos */}
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
-        <table className="w-full min-w-[700px] text-left text-sm">
+        <table className="w-full min-w-[900px] text-left text-sm">
           <thead>
             <tr className="border-b border-[var(--border)] bg-[var(--background)]">
               {(
@@ -355,26 +373,31 @@ export function InventoryView({ products: initialProducts }: { products: Product
               ).map(({ id, label, hintAsc, hintDesc }) => {
                 const isActive = sortBy === id;
                 const isAsc = sortOrder === "asc";
+                const alignCenter = ["stock", "folio", "entradas", "salidas"].includes(id);
                 return (
-                  <th key={id} className="px-2 py-2">
+                  <th
+                    key={id}
+                    className={`px-4 py-3 ${alignCenter ? "text-center" : ""}`}
+                  >
                     <button
                       type="button"
                       onClick={() => handleSort(id)}
                       aria-pressed={isActive}
                       aria-label={`Ordenar por ${label}, ${isActive ? (isAsc ? "ascendente" : "descendente") : "clic para ordenar"}`}
                       className={`
-                        flex items-center gap-1.5 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors
+                        inline-flex w-full min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium transition-colors whitespace-nowrap
                         focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 focus:ring-offset-[var(--background)]
+                        ${alignCenter ? "" : "justify-start text-left"}
                         ${isActive ? "bg-[var(--primary)]/15 text-[var(--primary)]" : "text-[var(--foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"}
                       `}
                     >
                       <span>{label}</span>
                       {isActive ? (
-                        <span className="flex items-center gap-0.5">
+                        <span className="inline-flex items-center gap-0.5 shrink-0">
                           {isAsc ? (
-                            <ArrowUp className="h-4 w-4 shrink-0" aria-hidden />
+                            <ArrowDown className="h-4 w-4" aria-hidden />
                           ) : (
-                            <ArrowDown className="h-4 w-4 shrink-0" aria-hidden />
+                            <ArrowUp className="h-4 w-4" aria-hidden />
                           )}
                           <span className="text-xs font-normal opacity-90">
                             ({isAsc ? hintAsc : hintDesc})
@@ -389,13 +412,15 @@ export function InventoryView({ products: initialProducts }: { products: Product
                   </th>
                 );
               })}
-              <th className="px-4 py-3 font-medium text-[var(--foreground)]">Acciones</th>
+              <th className="px-4 py-3 text-center text-sm font-medium text-[var(--muted)] whitespace-nowrap min-w-[140px]">Últ. entrada</th>
+              <th className="px-4 py-3 text-center text-sm font-medium text-[var(--muted)] whitespace-nowrap min-w-[140px]">Últ. salida</th>
+              <th className="px-4 py-3 text-center font-medium text-[var(--foreground)]">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-[var(--muted)]">
+                <td colSpan={9} className="px-4 py-12 text-center text-[var(--muted)]">
                   No hay productos que coincidan con los filtros
                 </td>
               </tr>
@@ -419,7 +444,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
                     </div>
                   </td>
                   <td className="px-4 py-3 text-[var(--muted)]">{product.category}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 text-center">
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         product.stock < product.minStock
@@ -430,7 +455,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
                       {product.stock} {product.unit}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 text-center">
                     {product.folio ? (
                       <button
                         type="button"
@@ -448,10 +473,16 @@ export function InventoryView({ products: initialProducts }: { products: Product
                       <span className="text-xs text-[var(--muted)]">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-[var(--success)]">{product.entradas}</td>
-                  <td className="px-4 py-3 text-[var(--destructive)]">{product.salidas}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                  <td className="px-4 py-3 text-center text-[var(--success)]">{product.entradas}</td>
+                  <td className="px-4 py-3 text-center text-[var(--destructive)]">{product.salidas}</td>
+                  <td className="px-4 py-3 text-center text-xs text-[var(--muted)]" title="Última actualización entrada">
+                    {formatLastUpdate(product.lastEntryAt)}
+                  </td>
+                  <td className="px-4 py-3 text-center text-xs text-[var(--muted)]" title="Última actualización salida">
+                    {formatLastUpdate(product.lastExitAt)}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex justify-center gap-2">
                       <button
                         onClick={() => {
                           setMovementError(null);

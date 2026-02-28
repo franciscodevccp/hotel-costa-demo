@@ -65,7 +65,7 @@ export function PendingPaymentsView({
           Pagos pendientes
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Empresas (pago en días hábiles) y personas con saldo pendiente.
+          Empresas con orden de compra (pago en días hábiles) y personas con saldo pendiente.
         </p>
       </div>
 
@@ -77,14 +77,14 @@ export function PendingPaymentsView({
               <Building2 className="h-5 w-5 text-[var(--primary)]" />
             </div>
             <p className="text-sm font-medium text-[var(--muted)]">
-              Total pendiente empresas
+              Total pendiente (empresas con orden de compra)
             </p>
           </div>
           <p className="mt-3 text-2xl font-bold tracking-tight text-[var(--primary)]">
             {formatCLP(totalCompaniesPending)}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            {filteredCompanies.length} empresa(s) con pagos en días hábiles
+            {filteredCompanies.length} empresa(s) con orden de compra y plazo en días hábiles
           </p>
         </div>
         <div className="rounded-xl border border-[var(--warning)]/20 bg-gradient-to-br from-[var(--warning)]/5 to-[var(--warning)]/10 p-5 shadow-sm">
@@ -105,13 +105,13 @@ export function PendingPaymentsView({
         </div>
       </div>
 
-      {/* Sección Empresas */}
+      {/* Sección Empresas con orden de compra */}
       <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm overflow-hidden">
         <div className="border-b border-[var(--border)] bg-[var(--background)] px-5 py-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="flex items-center gap-2 text-lg font-semibold text-[var(--foreground)]">
               <Building2 className="h-5 w-5 text-[var(--primary)]" />
-              Empresas
+              Empresas con orden de compra
             </h3>
             <div className="relative min-w-[200px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
@@ -125,13 +125,13 @@ export function PendingPaymentsView({
             </div>
           </div>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Pagos en días hábiles. Se muestra cuántos días restan para el vencimiento.
+            Solo empresas con orden de compra y plazo en días hábiles. Se muestra cuántos días restan para el vencimiento.
           </p>
         </div>
         <div className="divide-y divide-[var(--border)]">
           {filteredCompanies.length === 0 ? (
             <div className="p-12 text-center text-[var(--muted)]">
-              No hay empresas pendientes que coincidan con la búsqueda
+              No hay empresas con orden de compra pendientes que coincidan con la búsqueda
             </div>
           ) : (
             filteredCompanies.map((company) => (

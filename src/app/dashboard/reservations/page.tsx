@@ -34,7 +34,7 @@ export default async function ReservationsPage() {
         room_type: room.type,
         check_in: format(r.checkIn, "yyyy-MM-dd"),
         check_out: format(r.checkOut, "yyyy-MM-dd"),
-        status: r.status.toLowerCase() as "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled",
+        status: r.status.toLowerCase() as "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled" | "no_show",
         total_price: r.totalAmount,
         paid_amount: paid,
         pending_amount: Math.max(0, r.totalAmount - paid),

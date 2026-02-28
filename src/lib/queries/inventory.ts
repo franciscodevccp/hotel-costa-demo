@@ -13,7 +13,7 @@ export async function getProducts(establishmentId: string) {
       stock: true,
       minStock: true,
       movements: {
-        select: { type: true, quantity: true, folio: true },
+        select: { type: true, quantity: true, folio: true, createdAt: true },
         orderBy: { createdAt: "desc" as const },
       },
     },
@@ -27,12 +27,16 @@ export async function getProducts(establishmentId: string) {
       .filter((m) => m.type === "EXIT")
       .reduce((s, m) => s + m.quantity, 0);
     const lastWithFolio = p.movements.find((m) => m.folio);
+    const lastEntry = p.movements.find((m) => m.type === "ENTRY");
+    const lastExit = p.movements.find((m) => m.type === "EXIT");
     const { movements: _, ...product } = p;
     return {
       ...product,
       entradas,
       salidas,
       folio: lastWithFolio?.folio ?? null,
+      lastEntryAt: lastEntry?.createdAt ?? null,
+      lastExitAt: lastExit?.createdAt ?? null,
     };
   });
 }

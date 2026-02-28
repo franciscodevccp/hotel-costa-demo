@@ -141,6 +141,8 @@ model Reservation {
   checkOut        DateTime
   numGuests       Int               @default(1)
   status          ReservationStatus @default(PENDING)
+  checkedInAt     DateTime?         // Hora en que se marcó check-in realizado
+  checkedOutAt    DateTime?         // Hora en que se marcó check-out realizado
   totalAmount     Int               // total en CLP
   source          ReservationSource @default(MANUAL)
   motopressId     String?           @unique

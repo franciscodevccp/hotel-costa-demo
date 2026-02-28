@@ -23,7 +23,7 @@ export interface ReservationDisplay {
     room_type: string;
     check_in: string;
     check_out: string;
-    status: "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled";
+    status: "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled" | "no_show";
     total_price: number;
     paid_amount?: number;
     pending_amount?: number;
@@ -161,7 +161,7 @@ export function AdminReservationsView({
     const todayStr = format(startOfDay(new Date()), "yyyy-MM-dd");
     const availableRooms = (() => {
       const isActiveReservation = (r: ReservationDisplay) =>
-        r.status !== "cancelled" && r.status !== "checked_out";
+        r.status !== "cancelled" && r.status !== "checked_out" && r.status !== "no_show";
       const sameRoom = (room: RoomOption, r: ReservationDisplay) =>
         String(room.roomNumber) === String(r.room_number);
 
@@ -243,14 +243,16 @@ export function AdminReservationsView({
         checked_in: "bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/20",
         checked_out: "bg-[var(--muted)]/10 text-[var(--muted)] border-[var(--muted)]/20",
         cancelled: "bg-[var(--destructive)]/10 text-[var(--destructive)] border-[var(--destructive)]/20",
+        no_show: "bg-[var(--destructive)]/10 text-[var(--destructive)] border-[var(--destructive)]/20",
     };
 
     const statusLabels = {
         pending: "Pendiente",
         confirmed: "Confirmada",
-        checked_in: "Check-in",
-        checked_out: "Check-out",
+        checked_in: "Check-in realizado",
+        checked_out: "Check-out realizado",
         cancelled: "Cancelada",
+        no_show: "No se presentó",
     };
 
     /** Estado de pago de la reserva: texto y clase para la etiqueta. Solo para reservas no canceladas. */
@@ -623,7 +625,7 @@ export function AdminReservationsView({
                               placeholder="Ej. 30"
                               className="w-full max-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                             />
-                            <p className="mt-1 text-xs text-[var(--muted)]">Plazo en días hábiles después del check-out. Aparecerá en Pagos pendientes (Empresas).</p>
+                            <p className="mt-1 text-xs text-[var(--muted)]">Plazo en días hábiles después del check-out. Aparecerá en Pagos pendientes (Empresas con orden de compra).</p>
                           </div>
                         )}
                         {newTotalAmount > 0 && newDownPaymentMethod !== "PURCHASE_ORDER" && (
@@ -1007,8 +1009,9 @@ export function AdminReservationsView({
                     options={[
                         { value: "pending", label: "Pendiente" },
                         { value: "confirmed", label: "Confirmada" },
-                        { value: "checked_in", label: "Check-in" },
-                        { value: "checked_out", label: "Check-out" },
+                        { value: "checked_in", label: "Check-in realizado" },
+                        { value: "checked_out", label: "Check-out realizado" },
+                        { value: "no_show", label: "No se presentó" },
                         { value: "cancelled", label: "Cancelada" },
                     ]}
                     className="min-w-[160px]"
@@ -1095,7 +1098,47 @@ export function AdminReservationsView({
                                             Confirmar
                                         </button>
                                     )}
-                                    {reservation.status !== "cancelled" && (
+                                    {reservation.status === "confirmed" && (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const ok = await updateReservationStatus(reservation.id, "CHECKED_IN");
+                                                    if (ok?.success) router.refresh();
+                                                    else if (ok?.error) alert(ok.error);
+                                                }}
+                                                className="flex items-center justify-center rounded-lg border border-[var(--success)]/50 bg-[var(--success)]/10 px-3 py-2 text-sm font-medium text-[var(--success)] transition-colors hover:bg-[var(--success)]/20"
+                                            >
+                                                Check-in realizado
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    if (!confirm("¿Marcar como no presentado? El huésped no asistió a la reserva.")) return;
+                                                    const ok = await updateReservationStatus(reservation.id, "NO_SHOW");
+                                                    if (ok?.success) router.refresh();
+                                                    else if (ok?.error) alert(ok.error);
+                                                }}
+                                                className="flex items-center justify-center rounded-lg border border-[var(--warning)]/50 bg-[var(--warning)]/10 px-3 py-2 text-sm font-medium text-[var(--warning)] transition-colors hover:bg-[var(--warning)]/20"
+                                            >
+                                                No se presentó
+                                            </button>
+                                        </>
+                                    )}
+                                    {reservation.status === "checked_in" && (
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                const ok = await updateReservationStatus(reservation.id, "CHECKED_OUT");
+                                                if (ok?.success) router.refresh();
+                                                else if (ok?.error) alert(ok.error);
+                                            }}
+                                            className="flex items-center justify-center rounded-lg border border-[var(--muted)] bg-[var(--muted)]/10 px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--muted)]/20"
+                                        >
+                                            Check-out realizado
+                                        </button>
+                                    )}
+                                    {reservation.status !== "cancelled" && reservation.status !== "no_show" && (
                                         <button
                                             type="button"
                                             onClick={async () => {
@@ -1327,43 +1370,12 @@ export function AdminReservationsView({
                             )}
                         </div>
 
-                        {/* Acciones */}
-                        <div className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-4 flex flex-wrap gap-3">
-                            {selectedReservation.status === "pending" && (
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        const ok = await updateReservationStatus(selectedReservation.id, "CONFIRMED");
-                                        if (ok?.success) {
-                                            setSelectedReservation(null);
-                                            router.refresh();
-                                        } else if (ok?.error) alert(ok.error);
-                                    }}
-                                    className="flex-1 min-w-[140px] rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-4 py-2.5 text-sm font-medium text-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors"
-                                >
-                                    Confirmar reserva
-                                </button>
-                            )}
-                            {selectedReservation.status !== "cancelled" && (
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        if (!confirm("¿Cancelar esta reserva? Esta acción no se puede deshacer.")) return;
-                                        const ok = await updateReservationStatus(selectedReservation.id, "CANCELLED");
-                                        if (ok?.success) {
-                                            setSelectedReservation(null);
-                                            router.refresh();
-                                        } else if (ok?.error) alert(ok.error);
-                                    }}
-                                    className="flex-1 min-w-[140px] rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-4 py-2.5 text-sm font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/20 transition-colors"
-                                >
-                                    Cancelar reserva
-                                </button>
-                            )}
+                        {/* Solo Cerrar: las acciones se gestionan desde la lista */}
+                        <div className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-4">
                             <button
                                 type="button"
                                 onClick={() => setSelectedReservation(null)}
-                                className="flex-1 min-w-[100px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
+                                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
                             >
                                 Cerrar
                             </button>

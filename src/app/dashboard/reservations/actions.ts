@@ -345,17 +345,23 @@ export async function updateReservationStatus(
         await cancelBookingInMotopress(reservation.motopressId);
       }
     }
+    const now = new Date();
+    const data: { status: (typeof VALID_STATUSES)[number]; checkedInAt?: Date; checkedOutAt?: Date } = { status };
+    if (status === "CHECKED_IN") data.checkedInAt = now;
+    if (status === "CHECKED_OUT") data.checkedOutAt = now;
+
     const updated = await prisma.reservation.updateMany({
       where: {
         id: reservationId,
         establishmentId: session.user.establishmentId,
       },
-      data: { status },
+      data,
     });
     if (updated.count === 0) {
       return { error: "Reserva no encontrada" };
     }
     revalidatePath("/dashboard/reservations");
+    revalidatePath("/dashboard");
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al actualizar la reserva";

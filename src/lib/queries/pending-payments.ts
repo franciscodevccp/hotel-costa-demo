@@ -31,7 +31,7 @@ export async function getPendingCompanies(establishmentId: string) {
       establishmentId,
       companyName: { not: null },
       paymentTermDays: { not: null, gt: 0 },
-      status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
+      status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
     },
     include: { guest: true, room: true },
   });
@@ -86,7 +86,7 @@ export async function getPendingPersons(establishmentId: string) {
   const reservations = await prisma.reservation.findMany({
     where: {
       establishmentId,
-      status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
+      status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
       OR: [
         { companyName: null },
         { companyName: { not: null }, OR: [{ paymentTermDays: null }, { paymentTermDays: 0 }] },

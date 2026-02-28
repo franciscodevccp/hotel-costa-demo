@@ -1,7 +1,6 @@
 import {
   LogIn,
   LogOut,
-  Calendar,
   BedDouble,
   Clock,
   Users,
@@ -58,12 +57,6 @@ export function ReceptionistDashboard({
           title="Habitaciones Disponibles"
           value={stats.availableRooms}
           icon={BedDouble}
-        />
-        <StatCard
-          title="Próximas Reservas"
-          value={stats.upcomingReservations}
-          icon={Calendar}
-          description="Próximos 7 días"
         />
         <StatCard
           title="Pagos Pendientes"
