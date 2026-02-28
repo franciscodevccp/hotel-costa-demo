@@ -114,8 +114,13 @@ export function AdminReservationsView({
     const [newNotes, setNewNotes] = useState("");
     const [newFolioNumber, setNewFolioNumber] = useState("");
     const [newProcessedByName, setNewProcessedByName] = useState("");
+    const [receptionistDropdownOpen, setReceptionistDropdownOpen] = useState(false);
     const [reservationState, setReservationState] = useState<CreateReservationsBulkState>(initialReservationState);
-    const receptionistNameSuggestions = Array.from(new Set(reservations.map((r) => r.processed_by_name).filter(Boolean))) as string[];
+    const receptionistNamesList = Array.from(new Set(reservations.map((r) => r.processed_by_name).filter(Boolean)) as Set<string>).sort((a, b) => a.localeCompare(b, "es"));
+    const normalizeForSearch = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
+    const receptionistFiltered = newProcessedByName.trim()
+      ? receptionistNamesList.filter((name) => normalizeForSearch(name).includes(normalizeForSearch(newProcessedByName)))
+      : receptionistNamesList;
     const [entryCardUrlOverride, setEntryCardUrlOverride] = useState<Record<string, string>>({});
     const [uploadingEntryCard, setUploadingEntryCard] = useState(false);
     const [entryCardPreviewUrl, setEntryCardPreviewUrl] = useState<string | null>(null);
@@ -460,25 +465,52 @@ export function AdminReservationsView({
                         />
                         <p className="mt-0.5 text-xs text-[var(--muted)]">Número que figura en la tarjeta de ingreso en papel.</p>
                       </div>
-                      <div>
+                      <div className="relative">
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Recepcionista que gestiona la reserva *</label>
                         <input
                           type="text"
                           value={newProcessedByName}
-                          onChange={(e) => setNewProcessedByName(e.target.value)}
-                          list="receptionist-names"
+                          onChange={(e) => {
+                            setNewProcessedByName(e.target.value);
+                            setReceptionistDropdownOpen(true);
+                          }}
+                          onFocus={() => setReceptionistDropdownOpen(true)}
+                          onBlur={() => setTimeout(() => setReceptionistDropdownOpen(false), 180)}
                           placeholder="Ej. María González"
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                           aria-required
+                          aria-expanded={receptionistDropdownOpen}
+                          aria-autocomplete="list"
+                          aria-controls="receptionist-list"
+                          id="receptionist-input"
                         />
-                        {receptionistNameSuggestions.length > 0 && (
-                          <datalist id="receptionist-names">
-                            {receptionistNameSuggestions.map((name) => (
-                              <option key={name} value={name} />
-                            ))}
-                          </datalist>
+                        {receptionistDropdownOpen && receptionistNamesList.length > 0 && (
+                          <ul
+                            id="receptionist-list"
+                            role="listbox"
+                            className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
+                          >
+                            {receptionistFiltered.length === 0 ? (
+                              <li className="px-3 py-2 text-sm text-[var(--muted)]">Ningún trabajador coincide. Puede escribir un nombre nuevo.</li>
+                            ) : (
+                              receptionistFiltered.map((name) => (
+                                <li
+                                  key={name}
+                                  role="option"
+                                  className="cursor-pointer px-3 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--primary)]/10"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setNewProcessedByName(name);
+                                    setReceptionistDropdownOpen(false);
+                                  }}
+                                >
+                                  {name}
+                                </li>
+                              ))
+                            )}
+                          </ul>
                         )}
-                        <p className="mt-0.5 text-xs text-[var(--muted)]">Ingrese su nombre o el del trabajador que gestiona esta reserva. Quedará guardado para el registro.</p>
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">Seleccione de la lista o escriba un nombre. La búsqueda ignora tildes (ej. &quot;andres&quot; encuentra &quot;Andrés&quot;).</p>
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Huésped</label>
