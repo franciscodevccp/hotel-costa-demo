@@ -21,6 +21,7 @@ export async function getReservations(establishmentId: string, status?: string) 
       guest: true,
       room: true,
       payments: true,
+      processedBy: { select: { id: true, fullName: true } },
     },
     // checkIn desc: más recientes primero; createdAt desc: misma fecha = más recientes arriba, así no “baja” al confirmar
     orderBy: [{ checkIn: "desc" }, { createdAt: "desc" }],
@@ -43,6 +44,6 @@ export async function getReservationsByGuestId(establishmentId: string, guestId:
 export async function getReservationById(establishmentId: string, reservationId: string) {
   return prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId },
-    include: { guest: true, room: true, payments: true },
+    include: { guest: true, room: true, payments: true, processedBy: { select: { id: true, fullName: true } } },
   });
 }

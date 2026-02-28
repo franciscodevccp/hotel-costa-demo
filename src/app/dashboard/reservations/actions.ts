@@ -164,13 +164,21 @@ export async function createReservationsBulk(payload: {
   paymentTermDays?: number | null;
   notes?: string | null;
   customTotalAmount?: number | null;
+  /** Número de folio / tarjeta de ingreso (obligatorio) */
+  folioNumber: string;
+  /** Nombre del recepcionista/trabajador que gestiona la reserva (obligatorio) */
+  processedByName: string;
 }): Promise<CreateReservationsBulkState> {
   const session = await auth();
   if (!session?.user?.establishmentId) {
     return { error: "No autorizado" };
   }
 
-  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes, customTotalAmount } = payload;
+  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes, customTotalAmount, folioNumber, processedByName } = payload;
+  const folioTrim = folioNumber?.trim() ?? "";
+  if (!folioTrim) return { error: "El número de folio (tarjeta de ingreso) es obligatorio" };
+  const nameTrim = processedByName?.trim() ?? "";
+  if (!nameTrim) return { error: "Indique el nombre del recepcionista que gestiona la reserva" };
   const isPurchaseOrder = downPaymentMethod === "PURCHASE_ORDER";
   if (isPurchaseOrder && (!paymentTermDays || paymentTermDays < 1)) {
     return { error: "Indique los días hábiles para pagar (orden de compra)" };
@@ -258,6 +266,8 @@ export async function createReservationsBulk(payload: {
           notes: notes?.trim() || null,
           status: "PENDING",
           source: "MANUAL",
+          folioNumber: folioTrim,
+          processedByName: nameTrim,
           ...companyData,
           ...paymentTermData,
         },
@@ -365,6 +375,33 @@ export async function updateReservationStatus(
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al actualizar la reserva";
+    return { error: message };
+  }
+}
+
+export type UpdateEntryCardState = { error?: string; success?: boolean };
+
+export async function updateReservationEntryCard(
+  reservationId: string,
+  entryCardImageUrl: string
+): Promise<UpdateEntryCardState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  try {
+    const updated = await prisma.reservation.updateMany({
+      where: {
+        id: reservationId,
+        establishmentId: session.user.establishmentId,
+      },
+      data: { entryCardImageUrl },
+    });
+    if (updated.count === 0) return { error: "Reserva no encontrada" };
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al guardar la foto";
     return { error: message };
   }
 }

@@ -4,11 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone } from "lucide-react";
+import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone, ImagePlus } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, deleteReservation, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, deleteReservation, updateReservationEntryCard, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { SyncMotopressButton } from "./sync-motopress-button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -31,6 +31,9 @@ export interface ReservationDisplay {
     guests: number;
     payment_term_days?: number | null;
     special_requests?: string;
+    folio_number?: string;
+    processed_by_name?: string;
+    entry_card_image_url?: string;
 }
 
 /** Estilos del calendario por estado de reserva (colores bien diferenciados entre sí) */
@@ -109,7 +112,13 @@ export function AdminReservationsView({
     const [newDownPaymentMethod, setNewDownPaymentMethod] = useState<"CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER" | "PURCHASE_ORDER">("CASH");
     const [newPaymentTermDays, setNewPaymentTermDays] = useState<number>(0);
     const [newNotes, setNewNotes] = useState("");
+    const [newFolioNumber, setNewFolioNumber] = useState("");
+    const [newProcessedByName, setNewProcessedByName] = useState("");
     const [reservationState, setReservationState] = useState<CreateReservationsBulkState>(initialReservationState);
+    const receptionistNameSuggestions = Array.from(new Set(reservations.map((r) => r.processed_by_name).filter(Boolean))) as string[];
+    const [entryCardUrlOverride, setEntryCardUrlOverride] = useState<Record<string, string>>({});
+    const [uploadingEntryCard, setUploadingEntryCard] = useState(false);
+    const [entryCardPreviewUrl, setEntryCardPreviewUrl] = useState<string | null>(null);
     const [bulkSaving, setBulkSaving] = useState(false);
     const [localGuests, setLocalGuests] = useState<GuestOption[]>(guests);
     const [newGuestOpen, setNewGuestOpen] = useState(false);
@@ -387,6 +396,14 @@ export function AdminReservationsView({
                       className="flex min-h-0 flex-1 flex-col"
                       onSubmit={async (e) => {
                         e.preventDefault();
+                        if (!newFolioNumber?.trim()) {
+                          setReservationState({ error: "Indique el número de folio (tarjeta de ingreso)" });
+                          return;
+                        }
+                        if (!newProcessedByName?.trim()) {
+                          setReservationState({ error: "Indique el nombre del recepcionista que gestiona la reserva" });
+                          return;
+                        }
                         if (!newGuestId) {
                           setReservationState({ error: "Seleccione un huésped" });
                           return;
@@ -412,6 +429,8 @@ export function AdminReservationsView({
                           paymentTermDays: newDownPaymentMethod === "PURCHASE_ORDER" && newPaymentTermDays >= 1 ? newPaymentTermDays : undefined,
                           notes: newNotes || undefined,
                           customTotalAmount: newTotalAmount > 0 ? newTotalAmount : undefined,
+                          folioNumber: newFolioNumber.trim(),
+                          processedByName: newProcessedByName.trim(),
                         });
                         setBulkSaving(false);
                         if (result.error) {
@@ -429,6 +448,38 @@ export function AdminReservationsView({
                           {reservationState.error}
                         </p>
                       )}
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nº de folio (tarjeta de ingreso) *</label>
+                        <input
+                          type="text"
+                          value={newFolioNumber}
+                          onChange={(e) => setNewFolioNumber(e.target.value)}
+                          placeholder="Ej. 000002"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                          aria-required
+                        />
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">Número que figura en la tarjeta de ingreso en papel.</p>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Recepcionista que gestiona la reserva *</label>
+                        <input
+                          type="text"
+                          value={newProcessedByName}
+                          onChange={(e) => setNewProcessedByName(e.target.value)}
+                          list="receptionist-names"
+                          placeholder="Ej. María González"
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                          aria-required
+                        />
+                        {receptionistNameSuggestions.length > 0 && (
+                          <datalist id="receptionist-names">
+                            {receptionistNameSuggestions.map((name) => (
+                              <option key={name} value={name} />
+                            ))}
+                          </datalist>
+                        )}
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">Ingrese su nombre o el del trabajador que gestiona esta reserva. Quedará guardado para el registro.</p>
+                      </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Huésped</label>
                         <div className="flex gap-2">
@@ -674,6 +725,8 @@ export function AdminReservationsView({
                         </button>
                         <CrearReservaSubmitButton
                           disabled={
+                            !newFolioNumber?.trim() ||
+                            !newProcessedByName?.trim() ||
                             roomLines.every((l) => !l.roomId) ||
                             (newTotalAmount > 0 && newDownPayment > newTotalAmount) ||
                             (newDownPaymentMethod === "PURCHASE_ORDER" && (!newPaymentTermDays || newPaymentTermDays < 1))
@@ -1133,6 +1186,13 @@ export function AdminReservationsView({
                                         {reservation.guest_email}
                                         {reservation.guest_phone ? ` · ${reservation.guest_phone}` : ""}
                                     </p>
+                                    {(reservation.folio_number || reservation.processed_by_name) && (
+                                        <p className="mt-0.5 text-xs text-[var(--muted)]">
+                                            {reservation.folio_number && <>Folio {reservation.folio_number}</>}
+                                            {reservation.folio_number && reservation.processed_by_name && " · "}
+                                            {reservation.processed_by_name && <>Gestionada por {reservation.processed_by_name}</>}
+                                        </p>
+                                    )}
                                     {reservation.payment_term_days != null && reservation.payment_term_days > 0 && (
                                         <p className="mt-1 text-xs font-medium text-[var(--primary)]">
                                             Orden de compra · {reservation.payment_term_days} días hábiles
@@ -1346,7 +1406,7 @@ export function AdminReservationsView({
             {selectedReservation ? (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-                    onClick={() => setSelectedReservation(null)}
+                    onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); }}
                 >
                     <div
                         className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
@@ -1374,7 +1434,7 @@ export function AdminReservationsView({
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setSelectedReservation(null)}
+                                onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); }}
                                 className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors shrink-0"
                             >
                                 <X className="h-5 w-5" />
@@ -1469,6 +1529,89 @@ export function AdminReservationsView({
                                 </div>
                             </section>
 
+                            {/* Folio, recepcionista y foto tarjeta de ingreso */}
+                            <section>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
+                                    Tarjeta de ingreso
+                                </h4>
+                                <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/40 p-4 space-y-3">
+                                    {selectedReservation.folio_number && (
+                                        <p className="text-sm">
+                                            <span className="text-[var(--muted)]">Folio:</span>{" "}
+                                            <span className="font-medium text-[var(--foreground)]">{selectedReservation.folio_number}</span>
+                                        </p>
+                                    )}
+                                    {selectedReservation.processed_by_name && (
+                                        <p className="text-sm">
+                                            <span className="text-[var(--muted)]">Gestionada por:</span>{" "}
+                                            <span className="font-medium text-[var(--foreground)]">{selectedReservation.processed_by_name}</span>
+                                        </p>
+                                    )}
+                                    {(() => {
+                                        const photoUrl = selectedReservation.entry_card_image_url || entryCardUrlOverride[selectedReservation.id];
+                                        return (
+                                            <div>
+                                                <span className="text-[var(--muted)] text-sm block mb-2">Foto de la tarjeta firmada</span>
+                                                {photoUrl ? (
+                                                    <div className="space-y-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setEntryCardPreviewUrl(photoUrl)}
+                                                            className="block rounded-lg overflow-hidden border border-[var(--border)] max-w-[280px] text-left hover:ring-2 hover:ring-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                                                        >
+                                                            <img src={photoUrl} alt="Tarjeta de ingreso" className="w-full h-auto object-contain max-h-48" />
+                                                        </button>
+                                                        <p className="text-xs text-[var(--muted)]">Clic en la imagen para ver en grande. Respaldo de la tarjeta de ingreso con firma del huésped.</p>
+                                                    </div>
+                                                ) : (
+                                                    <div>
+                                                        <input
+                                                            type="file"
+                                                            accept="image/*"
+                                                            className="hidden"
+                                                            id="entry-card-file"
+                                                            onChange={async (e) => {
+                                                                const file = e.target.files?.[0];
+                                                                if (!file || !selectedReservation) return;
+                                                                e.target.value = "";
+                                                                setUploadingEntryCard(true);
+                                                                try {
+                                                                    const fd = new FormData();
+                                                                    fd.append("photo", file);
+                                                                    const res = await fetch("/api/upload/entry-card", { method: "POST", body: fd });
+                                                                    const data = await res.json();
+                                                                    if (!res.ok || !data.url) {
+                                                                        alert(data.error || "Error al subir la imagen");
+                                                                        return;
+                                                                    }
+                                                                    const result = await updateReservationEntryCard(selectedReservation.id, data.url);
+                                                                    if (result?.success) {
+                                                                        setEntryCardUrlOverride((prev) => ({ ...prev, [selectedReservation.id]: data.url }));
+                                                                        router.refresh();
+                                                                    } else if (result?.error) alert(result.error);
+                                                                } catch (err) {
+                                                                    alert(err instanceof Error ? err.message : "Error al subir");
+                                                                } finally {
+                                                                    setUploadingEntryCard(false);
+                                                                }
+                                                            }}
+                                                        />
+                                                        <label
+                                                            htmlFor="entry-card-file"
+                                                            className={`inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)]/60 px-4 py-3 text-sm font-medium text-[var(--muted)] hover:bg-[var(--muted)]/10 hover:text-[var(--foreground)] cursor-pointer transition-colors ${uploadingEntryCard ? "opacity-60 pointer-events-none" : ""}`}
+                                                        >
+                                                            <ImagePlus className="h-4 w-4" />
+                                                            {uploadingEntryCard ? "Subiendo…" : "Adjuntar foto de la tarjeta de ingreso"}
+                                                        </label>
+                                                        <p className="mt-1.5 text-xs text-[var(--muted)]">Se rellena en papel al ingreso del huésped; adjunte la foto como respaldo (con firma).</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </section>
+
                             {selectedReservation.special_requests && (
                                 <section>
                                     <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
@@ -1485,7 +1628,7 @@ export function AdminReservationsView({
                         <div className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-4">
                             <button
                                 type="button"
-                                onClick={() => setSelectedReservation(null)}
+                                onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); }}
                                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
                             >
                                 Cerrar
@@ -1494,6 +1637,34 @@ export function AdminReservationsView({
                     </div>
                 </div>
             ) : null}
+
+            {/* Modal ver foto tarjeta de ingreso en grande */}
+            {entryCardPreviewUrl && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center bg-black/80 p-4"
+                  onClick={() => setEntryCardPreviewUrl(null)}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Foto de la tarjeta de ingreso"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEntryCardPreviewUrl(null)}
+                    className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-[var(--foreground)] shadow-lg hover:bg-white"
+                    aria-label="Cerrar"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                  <img
+                    src={entryCardPreviewUrl}
+                    alt="Tarjeta de ingreso"
+                    className="max-h-[90vh] max-w-full object-contain rounded-lg shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>,
+                document.body
+              )}
         </div>
     );
 }

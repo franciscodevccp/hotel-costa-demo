@@ -8,7 +8,7 @@ import { ReceptionistReservationsView } from "@/components/reservations/receptio
 import type { Prisma } from "@prisma/client";
 
 type ReservationWithRelations = Prisma.ReservationGetPayload<{
-  include: { guest: true; room: true; payments: true };
+  include: { guest: true; room: true; payments: true; processedBy: { select: { id: true; fullName: true } } };
 }>;
 
 export default async function ReservationsPage() {
@@ -41,6 +41,9 @@ export default async function ReservationsPage() {
         nights: differenceInDays(r.checkOut, r.checkIn),
         guests: r.numGuests,
         payment_term_days: r.paymentTermDays ?? undefined,
+        folio_number: r.folioNumber ?? undefined,
+        processed_by_name: (r as { processedByName?: string | null }).processedByName ?? r.processedBy?.fullName ?? undefined,
+        entry_card_image_url: r.entryCardImageUrl ?? undefined,
       };
     });
   const roomNumbers = rooms.map((r) => r.roomNumber).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -51,7 +54,6 @@ export default async function ReservationsPage() {
     email: g.email ?? "",
     type: g.type,
   }));
-
   return (
     <div className="p-6">
       {session.user.role === "ADMIN" && (

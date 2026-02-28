@@ -45,8 +45,9 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  establishment Establishment  @relation(fields: [establishmentId], references: [id])
-  payments      Payment[]      @relation("RegisteredBy")
+  establishment     Establishment  @relation(fields: [establishmentId], references: [id])
+  payments          Payment[]      @relation("RegisteredBy")
+  processedReservations Reservation[] @relation("ProcessedBy")
 
   @@index([establishmentId])
 }
@@ -150,14 +151,23 @@ model Reservation {
   companyRut      String?
   companyEmail    String?
   paymentTermDays Int?
-  notes           String?
-  syncedAt        DateTime?         // Última sincronización desde MotoPress
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  notes             String?
+  syncedAt          DateTime?         // Última sincronización desde MotoPress
+  /// Número de folio / tarjeta de ingreso (obligatorio al crear desde recepción)
+  folioNumber        String?
+  /// Recepcionista que gestiona la reserva (nombre ingresado por el trabajador)
+  processedByName   String?
+  /// [Legacy] ID del usuario que gestionó (si se usó selección por cuenta)
+  processedById     String?
+  /// URL de la foto de la tarjeta de ingreso firmada (se adjunta al hacer check-in)
+  entryCardImageUrl String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   establishment Establishment @relation(fields: [establishmentId], references: [id])
   room          Room          @relation(fields: [roomId], references: [id])
   guest         Guest         @relation(fields: [guestId], references: [id])
+  processedBy   User?         @relation("ProcessedBy", fields: [processedById], references: [id])
   payments      Payment[]
 
   @@index([establishmentId, status])
