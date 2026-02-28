@@ -47,8 +47,18 @@ export async function getRoomRegister(establishmentId: string, date: Date) {
         },
       },
       payments: {
-        select: { amount: true, paidAt: true, method: true },
+        select: {
+          amount: true,
+          paidAt: true,
+          method: true,
+          receiptUrl: true,
+          receiptUrls: true,
+          receiptEntries: true,
+        },
         orderBy: { paidAt: "asc" },
+      },
+      consumptions: {
+        orderBy: { createdAt: "asc" },
       },
     },
   });
@@ -85,6 +95,9 @@ export async function getRoomRegister(establishmentId: string, date: Date) {
           status: res.status,
           notes: res.notes ?? null,
           companyName: res.companyName ?? null,
+          folioNumber: res.folioNumber ?? null,
+          processedByName: (res as { processedByName?: string | null }).processedByName ?? null,
+          entryCardImageUrl: res.entryCardImageUrl ?? null,
           guest: {
             fullName: res.guest.fullName,
             companyName: res.guest.companyName ?? null,
@@ -92,10 +105,30 @@ export async function getRoomRegister(establishmentId: string, date: Date) {
             email: res.guest.email ?? null,
             phone: res.guest.phone ?? null,
           },
-          payments: res.payments.map((p) => ({
-            amount: p.amount,
-            paidAt: p.paidAt,
-            method: PAYMENT_METHOD_LABELS[p.method] ?? p.method,
+          payments: res.payments.map((p) => {
+            const prismaPayment = p as { receiptUrl?: string | null; receiptUrls?: string[]; receiptEntries?: { url: string; amount: number; method: string }[] | null };
+            const receiptUrls = prismaPayment.receiptUrls?.length
+              ? prismaPayment.receiptUrls
+              : prismaPayment.receiptUrl
+                ? [prismaPayment.receiptUrl]
+                : [];
+            const receiptEntries = Array.isArray(prismaPayment.receiptEntries) ? prismaPayment.receiptEntries : null;
+            return {
+              amount: p.amount,
+              paidAt: p.paidAt,
+              method: PAYMENT_METHOD_LABELS[p.method] ?? p.method,
+              receipt_urls: receiptUrls,
+              receipt_entries: receiptEntries ?? undefined,
+            };
+          }),
+          consumptions: res.consumptions.map((c) => ({
+            id: c.id,
+            consumptionNumber: c.consumptionNumber,
+            description: c.description ?? null,
+            amount: c.amount,
+            method: c.method,
+            cardImageUrl: c.cardImageUrl ?? null,
+            createdAt: c.createdAt,
           })),
         }
       : null;

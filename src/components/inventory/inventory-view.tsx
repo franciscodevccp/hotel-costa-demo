@@ -729,17 +729,26 @@ export function InventoryView({ products: initialProducts }: { products: Product
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
-                  Folio / Factura <span className="font-normal text-[var(--muted)]">(opcional)</span>
+                  {showMovementModal.type === "salida"
+                    ? "Quién retira"
+                    : "Folio / Factura"}{" "}
+                  <span className="font-normal text-[var(--muted)]">(opcional)</span>
                 </label>
                 <input
                   type="text"
                   value={movementFolio}
                   onChange={(e) => setMovementFolio(e.target.value)}
-                  placeholder="Ej. B-0001, F-0002"
+                  placeholder={
+                    showMovementModal.type === "salida"
+                      ? "Ej. Juan Pérez, Recepción"
+                      : "Ej. B-0001, F-0002"
+                  }
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                 />
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  Vincula este movimiento con una boleta o factura
+                  {showMovementModal.type === "salida"
+                    ? "Persona o área que retira el producto de bodega"
+                    : "Vincula este movimiento con una boleta o factura"}
                 </p>
               </div>
               {showMovementModal.type === "salida" &&
