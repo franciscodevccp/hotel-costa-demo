@@ -201,9 +201,10 @@ enum PaymentMethod {
 }
 
 enum PaymentStatus {
-  COMPLETED
-  PENDING
-  REFUNDED
+  PENDING   // Pendiente
+  PARTIAL   // Pago de abono
+  COMPLETED // Pago total
+  REFUNDED  // Reembolsado
 }
 
 // ─── InventoryProduct ─────────────────────────────────────────────────────

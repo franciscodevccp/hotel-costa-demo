@@ -16,7 +16,7 @@ export default async function PaymentsPage() {
     amount: p.amount,
     total_amount: p.reservation.totalAmount,
     method: p.method.toLowerCase() as "cash" | "debit" | "credit" | "transfer" | "other",
-    status: (p.reservation.totalAmount > p.amount ? "partial" : "completed") as "completed" | "partial" | "pending" | "refunded",
+    status: p.status.toLowerCase() as "completed" | "partial" | "pending" | "refunded",
     registered_by: p.registeredBy.fullName,
   }));
 

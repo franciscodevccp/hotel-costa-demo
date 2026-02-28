@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, DollarSign, Calendar, Plus, Clock } from "lucide-react";
+import { Search, DollarSign, Calendar, Clock } from "lucide-react";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { CustomSelect } from "@/components/ui/custom-select";
 import {
@@ -33,9 +33,9 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
 };
 
 const STATUS_LABELS: Record<PaymentStatus, string> = {
-  completed: "Completado",
-  partial: "Abono",
   pending: "Pendiente",
+  partial: "Pago de abono",
+  completed: "Pago total",
   refunded: "Reembolsado",
 };
 
@@ -111,19 +111,13 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">
-            Pagos
-          </h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Registra y consulta los pagos de reservas
-          </p>
-        </div>
-        <button className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:opacity-90 active:scale-95">
-          <Plus className="h-4 w-4" />
-          Registrar pago
-        </button>
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">
+          Pagos
+        </h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Consulta los pagos registrados al crear reservas
+        </p>
       </div>
 
       {/* Resumen: tres tarjetas numéricas */}

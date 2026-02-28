@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Search, DollarSign, Calendar, Clock } from "lucide-react";
+import { updatePaymentStatus, type PaymentStatusValue } from "@/app/dashboard/payments/actions";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { CustomSelect } from "@/components/ui/custom-select";
 import {
@@ -37,9 +39,9 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
 };
 
 const STATUS_LABELS: Record<PaymentStatus, string> = {
-  completed: "Completado",
-  partial: "Abono",
   pending: "Pendiente",
+  partial: "Pago de abono",
+  completed: "Pago total",
   refunded: "Reembolsado",
 };
 
@@ -63,11 +65,13 @@ const STATUS_STYLES: Record<PaymentStatus, string> = {
 };
 
 export function AdminPaymentsView({ payments }: { payments: PaymentRow[] }) {
+  const router = useRouter();
   const [methodFilter, setMethodFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [search, setSearch] = useState("");
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", {
@@ -343,11 +347,28 @@ export function AdminPaymentsView({ payments }: { payments: PaymentRow[] }) {
                       >
                         {METHOD_LABELS[p.method]}
                       </span>
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[p.status]}`}
-                      >
-                        {STATUS_LABELS[p.status]}
-                      </span>
+                      <div className="min-w-[120px]">
+                      <CustomSelect
+                        value={p.status}
+                        onChange={async (v) => {
+                          const newStatus = v.toUpperCase() as PaymentStatusValue;
+                          if (newStatus === (p.status.toUpperCase() as PaymentStatusValue)) return;
+                          setUpdatingId(p.id);
+                          await updatePaymentStatus(p.id, newStatus);
+                          setUpdatingId(null);
+                          router.refresh();
+                        }}
+                        options={(["pending", "partial", "completed", "refunded"] as const).map((s) => ({
+                          value: s,
+                          label: STATUS_LABELS[s],
+                        }))}
+                        placeholder="Estado"
+                        aria-label="Estado del pago"
+                      />
+                      {updatingId === p.id && (
+                        <span className="mt-1 block text-xs text-[var(--muted)]">Actualizando…</span>
+                      )}
+                    </div>
                     </div>
                     <span className="text-xs text-[var(--muted)]">
                       Por: {p.registered_by.split(' ')[0]}
@@ -437,11 +458,27 @@ export function AdminPaymentsView({ payments }: { payments: PaymentRow[] }) {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[p.status]}`}
-                      >
-                        {STATUS_LABELS[p.status]}
-                      </span>
+                      <CustomSelect
+                        value={p.status}
+                        onChange={async (v) => {
+                          const newStatus = v.toUpperCase() as PaymentStatusValue;
+                          if (newStatus === (p.status.toUpperCase() as PaymentStatusValue)) return;
+                          setUpdatingId(p.id);
+                          await updatePaymentStatus(p.id, newStatus);
+                          setUpdatingId(null);
+                          router.refresh();
+                        }}
+                        options={(["pending", "partial", "completed", "refunded"] as const).map((s) => ({
+                          value: s,
+                          label: STATUS_LABELS[s],
+                        }))}
+                        placeholder="Estado"
+                        className="min-w-[140px]"
+                        aria-label="Estado del pago"
+                      />
+                      {updatingId === p.id && (
+                        <span className="ml-1 text-xs text-[var(--muted)]">Actualizando…</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {p.registered_by}

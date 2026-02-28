@@ -87,7 +87,7 @@ export async function createReservation(
           registeredById: userId,
           amount: downPayment,
           method: downPaymentMethod,
-          status: "COMPLETED",
+          status: downPayment >= totalAmount ? "COMPLETED" : "PARTIAL",
           notes: "Abono al crear reserva",
         },
       });
@@ -232,7 +232,7 @@ export async function createReservationsBulk(payload: {
             registeredById: userId,
             amount: amountForThis,
             method,
-            status: "COMPLETED",
+            status: amountForThis >= totalAmount ? "COMPLETED" : "PARTIAL",
             notes: "Abono al crear reserva",
           },
         });
