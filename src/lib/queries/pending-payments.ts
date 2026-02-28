@@ -52,7 +52,7 @@ export async function getPendingCompanies(establishmentId: string) {
   }> = [];
   for (const r of reservations) {
     const sum = await prisma.payment.aggregate({
-      where: { reservationId: r.id, status: "COMPLETED" },
+      where: { reservationId: r.id },
       _sum: { amount: true },
     });
     const paid = sum._sum.amount ?? 0;
@@ -81,12 +81,16 @@ export async function getPendingCompanies(establishmentId: string) {
   return out;
 }
 
+/** Personas y empresas sin orden de compra: todas las reservas con saldo pendiente que no entran en "empresas con días hábiles". */
 export async function getPendingPersons(establishmentId: string) {
   const reservations = await prisma.reservation.findMany({
     where: {
       establishmentId,
-      companyName: null,
       status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
+      OR: [
+        { companyName: null },
+        { companyName: { not: null }, OR: [{ paymentTermDays: null }, { paymentTermDays: 0 }] },
+      ],
     },
     include: { guest: true, room: true },
   });
@@ -99,10 +103,11 @@ export async function getPendingPersons(establishmentId: string) {
     pendingAmount: number;
     guestPhone: string | null;
     checkOut: Date;
+    companyName: string | null;
   }> = [];
   for (const r of reservations) {
     const sum = await prisma.payment.aggregate({
-      where: { reservationId: r.id, status: "COMPLETED" },
+      where: { reservationId: r.id },
       _sum: { amount: true },
     });
     const paid = sum._sum.amount ?? 0;
@@ -117,7 +122,33 @@ export async function getPendingPersons(establishmentId: string) {
       pendingAmount: pending,
       guestPhone: r.guest.phone,
       checkOut: r.checkOut,
+      companyName: r.companyName,
     });
   }
   return out;
+}
+
+/** Todas las reservas con saldo pendiente (personas + empresas) para la página de Pagos. totalAmount es el de la reserva (personalizado o predeterminado). */
+export async function getAllPendingReservations(establishmentId: string) {
+  const [persons, companies] = await Promise.all([
+    getPendingPersons(establishmentId),
+    getPendingCompanies(establishmentId),
+  ]);
+  const personRows = persons.map((p) => ({
+    reservationId: p.id,
+    guestName: p.guestName,
+    roomNumber: p.roomNumber,
+    totalAmount: p.totalAmount,
+    paidAmount: p.paidAmount,
+    pendingAmount: p.pendingAmount,
+  }));
+  const companyRows = companies.map((c) => ({
+    reservationId: c.id,
+    guestName: c.guestName,
+    roomNumber: c.roomNumber,
+    totalAmount: c.totalAmount,
+    paidAmount: c.paidAmount,
+    pendingAmount: c.pendingAmount,
+  }));
+  return [...personRows, ...companyRows];
 }

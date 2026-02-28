@@ -227,8 +227,12 @@ export function AdminReservationsView({
     }, [newReservationOpen]);
 
     useEffect(() => {
-      setNewTotalAmount(calculatedTotal);
-    }, [calculatedTotal]);
+      const singleRoom = roomLines.length === 1 && roomLines[0]?.roomId;
+      setNewTotalAmount((prev) => {
+        if (!singleRoom) return calculatedTotal;
+        return prev === 0 || prev === calculatedTotal ? calculatedTotal : prev;
+      });
+    }, [calculatedTotal, roomLines.length, roomLines[0]?.roomId]);
     const filteredReservations = statusFilter
         ? reservations.filter((r) => r.status === statusFilter)
         : reservations;
@@ -247,6 +251,20 @@ export function AdminReservationsView({
         checked_in: "Check-in",
         checked_out: "Check-out",
         cancelled: "Cancelada",
+    };
+
+    /** Estado de pago de la reserva: texto y clase para la etiqueta. Solo para reservas no canceladas. */
+    const getPaymentStatus = (r: ReservationDisplay): { label: string; className: string } | null => {
+        if (r.status === "cancelled") return null;
+        const paid = r.paid_amount ?? 0;
+        const pending = r.pending_amount ?? Math.max(0, (r.total_price ?? 0) - paid);
+        if (pending <= 0 || paid >= (r.total_price ?? 0)) {
+            return { label: "Pagado", className: "bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/20" };
+        }
+        if (paid > 0) {
+            return { label: "Pago parcial", className: "bg-[var(--warning)]/10 text-[var(--warning)] border-[var(--warning)]/20" };
+        }
+        return { label: "Pendiente de pago", className: "bg-[var(--muted)]/20 text-[var(--muted)] border-[var(--muted)]/30" };
     };
 
     const formatCLP = (amount: number) => {
@@ -388,6 +406,7 @@ export function AdminReservationsView({
                           downPaymentMethod: newDownPaymentMethod,
                           paymentTermDays: newDownPaymentMethod === "PURCHASE_ORDER" && newPaymentTermDays >= 1 ? newPaymentTermDays : undefined,
                           notes: newNotes || undefined,
+                          customTotalAmount: newTotalAmount > 0 ? newTotalAmount : undefined,
                         });
                         setBulkSaving(false);
                         if (result.error) {
@@ -1026,6 +1045,14 @@ export function AdminReservationsView({
                                         <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[reservation.status]}`}>
                                             {statusLabels[reservation.status]}
                                         </span>
+                                        {(() => {
+                                            const ps = getPaymentStatus(reservation);
+                                            return ps ? (
+                                                <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm border ${ps.className}`}>
+                                                    {ps.label}
+                                                </span>
+                                            ) : null;
+                                        })()}
                                     </div>
                                     <p className="mt-1.5 text-sm text-[var(--muted)]">
                                         {formatDate(reservation.check_in)} – {formatDate(reservation.check_out)}
@@ -1162,148 +1189,188 @@ export function AdminReservationsView({
               )}
 
             {/* Modal detalle de reserva */}
-            {selectedReservation && (
+            {selectedReservation ? (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
                     onClick={() => setSelectedReservation(null)}
                 >
                     <div
-                        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="flex items-start justify-between">
-                            <div>
-                                <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                        {/* Header */}
+                        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--card)] px-6 pt-6 pb-5">
+                            <div className="min-w-0">
+                                <h3 className="text-xl font-semibold text-[var(--foreground)] truncate">
                                     {selectedReservation.guest_name}
                                 </h3>
-                                <span className={`inline-block mt-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[selectedReservation.status]}`}>
-                                    {statusLabels[selectedReservation.status]}
-                                </span>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusColors[selectedReservation.status]}`}>
+                                        {statusLabels[selectedReservation.status]}
+                                    </span>
+                                    {(() => {
+                                        const ps = getPaymentStatus(selectedReservation);
+                                        return ps ? (
+                                            <span className={`rounded-full px-2.5 py-1 text-xs font-medium border ${ps.className}`}>
+                                                {ps.label}
+                                            </span>
+                                        ) : null;
+                                    })()}
+                                </div>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setSelectedReservation(null)}
-                                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
+                                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors shrink-0"
                             >
                                 <X className="h-5 w-5" />
                             </button>
                         </div>
 
-                        <div className="mt-6 space-y-4">
-                            <div className="rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-4 space-y-3">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <Calendar className="h-4 w-4 shrink-0 text-[var(--muted)]" />
-                                    <span className="text-[var(--foreground)] font-medium">Fechas</span>
+                        {/* Contenido con secciones claras */}
+                        <div className="px-6 py-6 space-y-8">
+                            {/* Detalles de la reserva */}
+                            <section>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
+                                    Detalles de la reserva
+                                </h4>
+                                <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/40 overflow-hidden">
+                                    <div className="flex items-center gap-4 px-4 py-4">
+                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
+                                            <Calendar className="h-5 w-5 text-[var(--primary)]" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium text-[var(--foreground)]">
+                                                {formatDate(selectedReservation.check_in)} — {formatDate(selectedReservation.check_out)}
+                                            </p>
+                                            <p className="text-xs text-[var(--muted)]">
+                                                {selectedReservation.nights} {selectedReservation.nights === 1 ? "noche" : "noches"}
+                                                <span className="mx-1.5">·</span>
+                                                Hab. {selectedReservation.room_number} ({selectedReservation.room_type})
+                                                <span className="mx-1.5">·</span>
+                                                {selectedReservation.guests} {selectedReservation.guests === 1 ? "huésped" : "huéspedes"}
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
-                                <p className="text-sm text-[var(--muted)] pl-6">
-                                    {formatDate(selectedReservation.check_in)} — {formatDate(selectedReservation.check_out)}
-                                </p>
-                                <p className="text-xs text-[var(--muted)] pl-6">
-                                    {selectedReservation.nights} {selectedReservation.nights === 1 ? 'noche' : 'noches'}
-                                </p>
-                            </div>
+                            </section>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-3">
-                                    <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wide">Habitación</p>
-                                    <p className="mt-0.5 font-semibold text-[var(--foreground)]">Hab. {selectedReservation.room_number}</p>
-                                    <p className="text-xs text-[var(--muted)]">{selectedReservation.room_type}</p>
+                            {/* Contacto */}
+                            <section>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
+                                    Contacto
+                                </h4>
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
+                                    <a
+                                        href={`mailto:${selectedReservation.guest_email}`}
+                                        className="flex items-center gap-2 text-[var(--primary)] hover:underline"
+                                    >
+                                        <Mail className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+                                        <span className="truncate">{selectedReservation.guest_email}</span>
+                                    </a>
+                                    {selectedReservation.guest_phone && (
+                                        <a
+                                            href={`tel:${selectedReservation.guest_phone}`}
+                                            className="flex items-center gap-2 text-[var(--foreground)] hover:text-[var(--primary)]"
+                                        >
+                                            <Phone className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+                                            <span>{selectedReservation.guest_phone}</span>
+                                        </a>
+                                    )}
                                 </div>
-                                <div className="rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-3">
-                                    <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wide">Huéspedes</p>
-                                    <p className="mt-0.5 font-semibold text-[var(--foreground)]">
-                                        {selectedReservation.guests} {selectedReservation.guests === 1 ? 'persona' : 'personas'}
-                                    </p>
-                                </div>
-                            </div>
+                            </section>
 
-                            <div className="rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-4 space-y-2">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <Mail className="h-4 w-4 shrink-0 text-[var(--muted)]" />
-                                    <a href={`mailto:${selectedReservation.guest_email}`} className="text-[var(--primary)] hover:underline truncate">
-                                        {selectedReservation.guest_email}
-                                    </a>
+                            {/* Pago */}
+                            <section>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
+                                    Pago
+                                </h4>
+                                <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/40 p-5">
+                                    {(selectedReservation.pending_amount != null && selectedReservation.pending_amount === 0) ||
+                                     (selectedReservation.paid_amount != null && selectedReservation.paid_amount >= selectedReservation.total_price) ? (
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium text-[var(--success)]">Pago completado</span>
+                                            <p className="text-xl font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {selectedReservation.paid_amount != null && selectedReservation.paid_amount > 0 && (
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-[var(--muted)]">Abonado</span>
+                                                    <span className="font-medium">{formatCLP(selectedReservation.paid_amount)}</span>
+                                                </div>
+                                            )}
+                                            {selectedReservation.pending_amount != null && selectedReservation.pending_amount > 0 && (
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-[var(--muted)]">Saldo pendiente</span>
+                                                    <span className="font-medium text-[var(--warning)]">{formatCLP(selectedReservation.pending_amount)}</span>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between pt-3 border-t border-[var(--border)]">
+                                                <span className="text-sm text-[var(--muted)]">Total</span>
+                                                <p className="text-lg font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="flex items-center gap-2 text-sm">
-                                    <Phone className="h-4 w-4 shrink-0 text-[var(--muted)]" />
-                                    <a href={`tel:${selectedReservation.guest_phone}`} className="text-[var(--foreground)] hover:text-[var(--primary)] truncate">
-                                        {selectedReservation.guest_phone}
-                                    </a>
-                                </div>
-                            </div>
+                            </section>
 
                             {selectedReservation.special_requests && (
-                                <div className="rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-3">
-                                    <p className="text-xs font-medium text-[var(--muted)] uppercase tracking-wide">Solicitudes especiales</p>
-                                    <p className="mt-1 text-sm text-[var(--foreground)]">{selectedReservation.special_requests}</p>
-                                </div>
+                                <section>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)] mb-3">
+                                        Solicitudes especiales
+                                    </h4>
+                                    <p className="text-sm text-[var(--foreground)] rounded-xl border border-[var(--border)] bg-[var(--background)]/40 p-4">
+                                        {selectedReservation.special_requests}
+                                    </p>
+                                </section>
                             )}
+                        </div>
 
-                            <div className="space-y-1.5 pt-2 border-t border-[var(--border)]">
-                                {selectedReservation.paid_amount != null && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-[var(--muted)]">Abonado</span>
-                                        <p className="text-sm font-medium text-[var(--foreground)]">{formatCLP(selectedReservation.paid_amount)}</p>
-                                    </div>
-                                )}
-                                {selectedReservation.pending_amount != null && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-[var(--muted)]">Saldo pendiente</span>
-                                        <p className={`text-sm font-medium ${selectedReservation.pending_amount > 0 ? "text-[var(--warning)]" : "text-[var(--foreground)]"}`}>
-                                            {formatCLP(selectedReservation.pending_amount)}
-                                        </p>
-                                    </div>
-                                )}
-                                <div className="flex items-center justify-between pt-1">
-                                    <span className="text-sm text-[var(--muted)]">Total</span>
-                                    <p className="text-xl font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-wrap gap-3 pt-2">
-                                {selectedReservation.status === "pending" && (
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            const ok = await updateReservationStatus(selectedReservation.id, "CONFIRMED");
-                                            if (ok?.success) {
-                                                setSelectedReservation(null);
-                                                router.refresh();
-                                            } else if (ok?.error) alert(ok.error);
-                                        }}
-                                        className="flex-1 min-w-[120px] rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-4 py-2.5 text-sm font-medium text-[var(--primary)] hover:bg-[var(--primary)]/20"
-                                    >
-                                        Confirmar reserva
-                                    </button>
-                                )}
-                                {selectedReservation.status !== "cancelled" && (
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (!confirm("¿Cancelar esta reserva? Esta acción no se puede deshacer.")) return;
-                                            const ok = await updateReservationStatus(selectedReservation.id, "CANCELLED");
-                                            if (ok?.success) {
-                                                setSelectedReservation(null);
-                                                router.refresh();
-                                            } else if (ok?.error) alert(ok.error);
-                                        }}
-                                        className="flex-1 min-w-[120px] rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-4 py-2.5 text-sm font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/20"
-                                    >
-                                        Cancelar reserva
-                                    </button>
-                                )}
+                        {/* Acciones */}
+                        <div className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-4 flex flex-wrap gap-3">
+                            {selectedReservation.status === "pending" && (
                                 <button
                                     type="button"
-                                    onClick={() => setSelectedReservation(null)}
-                                    className="flex-1 min-w-[100px] rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
+                                    onClick={async () => {
+                                        const ok = await updateReservationStatus(selectedReservation.id, "CONFIRMED");
+                                        if (ok?.success) {
+                                            setSelectedReservation(null);
+                                            router.refresh();
+                                        } else if (ok?.error) alert(ok.error);
+                                    }}
+                                    className="flex-1 min-w-[140px] rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-4 py-2.5 text-sm font-medium text-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors"
                                 >
-                                    Cerrar
+                                    Confirmar reserva
                                 </button>
-                            </div>
+                            )}
+                            {selectedReservation.status !== "cancelled" && (
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        if (!confirm("¿Cancelar esta reserva? Esta acción no se puede deshacer.")) return;
+                                        const ok = await updateReservationStatus(selectedReservation.id, "CANCELLED");
+                                        if (ok?.success) {
+                                            setSelectedReservation(null);
+                                            router.refresh();
+                                        } else if (ok?.error) alert(ok.error);
+                                    }}
+                                    className="flex-1 min-w-[140px] rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 px-4 py-2.5 text-sm font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/20 transition-colors"
+                                >
+                                    Cancelar reserva
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setSelectedReservation(null)}
+                                className="flex-1 min-w-[100px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
+                            >
+                                Cerrar
+                            </button>
                         </div>
                     </div>
                 </div>
-            )}
+            ) : null}
         </div>
     );
 }

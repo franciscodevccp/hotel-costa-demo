@@ -8,6 +8,6 @@ export async function getPayments(establishmentId: string) {
       registeredBy: { select: { fullName: true } },
     },
     orderBy: { paidAt: "desc" },
-    take: 100,
+    take: 500,
   });
 }

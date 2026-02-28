@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Search, DollarSign, Calendar, Clock, X } from "lucide-react";
+import { Search, DollarSign, Calendar, Clock, X, PlusCircle } from "lucide-react";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { EditPaymentModal } from "./edit-payment-modal";
+import { FirstPaymentModal } from "./first-payment-modal";
 import { deletePayment } from "@/app/dashboard/payments/actions";
 import {
   PieChart,
@@ -15,7 +16,7 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import type { PaymentRow } from "./admin-payments-view";
+import type { PaymentRow, PaymentTableRow, PendingReservationRow } from "./admin-payments-view";
 
 type PaymentMethod = "cash" | "debit" | "credit" | "transfer" | "other";
 type PaymentStatus = "completed" | "partial" | "pending" | "refunded";
@@ -50,17 +51,62 @@ const STATUS_STYLES: Record<PaymentStatus, string> = {
   refunded: "bg-[var(--muted)]/10 text-[var(--muted)] border-[var(--muted)]/20",
 };
 
-export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] }) {
+export function ReceptionistPaymentsView({
+  payments,
+  pendingReservations = [],
+  openReservationId,
+  reservationForFirstPayment,
+}: {
+  payments: PaymentRow[];
+  pendingReservations?: PendingReservationRow[];
+  openReservationId?: string;
+  reservationForFirstPayment?: {
+    reservationId: string;
+    guestName: string;
+    roomNumber: string;
+    totalAmount: number;
+  };
+}) {
   const router = useRouter();
   const [methodFilter, setMethodFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [search, setSearch] = useState("");
-  const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null);
-  const [paymentToDelete, setPaymentToDelete] = useState<PaymentRow | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentTableRow | null>(null);
+  const [paymentToDelete, setPaymentToDelete] = useState<PaymentTableRow | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!openReservationId) return;
+    const pay = payments.find((p) => p.reservation_id === openReservationId);
+    if (pay) {
+      setSelectedPayment(pay);
+      router.replace("/dashboard/payments", { scroll: false });
+      return;
+    }
+    const pend = pendingReservations.find((r) => r.reservationId === openReservationId);
+    if (pend) {
+      setSelectedPayment({
+        id: `pending-${pend.reservationId}`,
+        reservation_id: pend.reservationId,
+        paid_at: "",
+        guest_name: pend.guestName,
+        guest_type: "PERSON",
+        room_number: pend.roomNumber,
+        amount: 0,
+        total_amount: pend.totalAmount,
+        method: "cash",
+        additional_methods: [],
+        status: "pending",
+        registered_by: "—",
+        reservation_status: "confirmed",
+        isPendingOnly: true,
+      });
+      // No hacer router.replace aquí: mantener ?reservation=id para que el modal "Registrar primer pago" siga visible
+    }
+  }, [openReservationId, payments, pendingReservations, router]);
 
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", {
@@ -86,9 +132,28 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
   const totalMonth = payments
     .filter((p) => p.status === "completed" || p.status === "partial")
     .reduce((s, p) => s + p.amount, 0);
-  const totalPending = payments
-    .filter((p) => p.status === "partial" && p.total_amount != null)
-    .reduce((s, p) => s + (p.total_amount! - p.amount), 0);
+  const totalPending = pendingReservations.reduce((s, r) => s + r.pendingAmount, 0);
+
+  const reservationIdsWithPayments = new Set(payments.map((p) => p.reservation_id));
+  const pendingOnlyRows: PaymentTableRow[] = pendingReservations
+    .filter((r) => !reservationIdsWithPayments.has(r.reservationId))
+    .map((r) => ({
+      id: `pending-${r.reservationId}`,
+      reservation_id: r.reservationId,
+      paid_at: "",
+      guest_name: r.guestName,
+      guest_type: "PERSON" as const,
+      room_number: r.roomNumber,
+      amount: 0,
+      total_amount: r.totalAmount,
+      method: "cash" as PaymentMethod,
+      additional_methods: [],
+      status: "pending" as PaymentStatus,
+      registered_by: "—",
+      reservation_status: "confirmed" as const,
+      isPendingOnly: true,
+    }));
+  const allRows: PaymentTableRow[] = [...payments, ...pendingOnlyRows];
 
   const paymentsRelevant = payments.filter(
     (p) => p.status === "completed" || p.status === "partial"
@@ -117,15 +182,15 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
     }))
     .filter((d) => d.value > 0);
 
-  let filtered = payments;
+  let filtered: PaymentTableRow[] = allRows;
   if (methodFilter)
-    filtered = filtered.filter((p) => p.method === methodFilter);
+    filtered = filtered.filter((p) => !p.isPendingOnly && p.method === methodFilter);
   if (statusFilter)
     filtered = filtered.filter((p) => p.status === statusFilter);
   if (dateFrom)
-    filtered = filtered.filter((p) => p.paid_at.slice(0, 10) >= dateFrom);
+    filtered = filtered.filter((p) => p.isPendingOnly || p.paid_at.slice(0, 10) >= dateFrom);
   if (dateTo)
-    filtered = filtered.filter((p) => p.paid_at.slice(0, 10) <= dateTo);
+    filtered = filtered.filter((p) => p.isPendingOnly || p.paid_at.slice(0, 10) <= dateTo);
   if (search) {
     const q = search.toLowerCase();
     filtered = filtered.filter(
@@ -145,6 +210,20 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
           Consulta los pagos registrados al crear reservas
         </p>
       </div>
+
+      {/* Modal Registrar primer pago (reserva sin pagos) */}
+      {reservationForFirstPayment && typeof document !== "undefined" &&
+        createPortal(
+          <FirstPaymentModal
+            reservation={reservationForFirstPayment}
+            onClose={() => router.replace("/dashboard/payments", { scroll: false })}
+            onSaved={() => {
+              router.refresh();
+              router.replace("/dashboard/payments", { scroll: false });
+            }}
+          />,
+          document.body
+        )}
 
       {/* Resumen: tres tarjetas numéricas */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
@@ -323,29 +402,39 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                   key={p.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelectedPayment(p)}
-                  onKeyDown={(e) => e.key === "Enter" && setSelectedPayment(p)}
+                  onClick={() => {
+                    if (p.isPendingOnly) router.push(`/dashboard/payments?reservation=${p.reservation_id}`);
+                    else setSelectedPayment(p);
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && (p.isPendingOnly ? router.push(`/dashboard/payments?reservation=${p.reservation_id}`) : setSelectedPayment(p))}
                   className="p-4 space-y-3 cursor-pointer hover:bg-[var(--background)]/50 active:opacity-90 relative"
                 >
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); if (p.reservation_status !== "pending") setPaymentToDelete(p); }}
-                    className={`absolute right-2 top-2 rounded-lg p-1.5 ${p.reservation_status === "pending" ? "cursor-not-allowed opacity-50" : "text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"}`}
-                    title={p.reservation_status === "pending" ? "Confirme la reserva para habilitar acciones" : "Eliminar registro"}
-                    aria-label={p.reservation_status === "pending" ? "Reserva pendiente" : "Eliminar registro"}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                  {!p.isPendingOnly && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); if (p.reservation_status !== "pending") setPaymentToDelete(p); }}
+                      className={`absolute right-2 top-2 rounded-lg p-1.5 ${p.reservation_status === "pending" ? "cursor-not-allowed opacity-50" : "text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"}`}
+                      title={p.reservation_status === "pending" ? "Confirme la reserva para habilitar acciones" : "Eliminar registro"}
+                      aria-label={p.reservation_status === "pending" ? "Reserva pendiente" : "Eliminar registro"}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
                   {/* Cabecera: Fecha y Monto */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[var(--muted)] font-medium">
-                      {formatDateTime(p.paid_at)}
+                      {p.isPendingOnly ? "Pendiente" : formatDateTime(p.paid_at)}
                     </span>
                     <div className="text-right">
                       <span className="text-lg font-bold text-[var(--foreground)]">
-                        {formatCLP(p.amount)}
+                        {p.isPendingOnly ? formatCLP(0) : formatCLP(p.amount)}
                       </span>
-                      {p.total_amount != null && p.status === "partial" && (
+                      {(p.isPendingOnly && p.total_amount != null) && (
+                        <p className="text-xs text-[var(--warning)]">
+                          Total: {formatCLP(p.total_amount)} · Pendiente: {formatCLP(p.total_amount)}
+                        </p>
+                      )}
+                      {!p.isPendingOnly && p.total_amount != null && p.status === "partial" && (
                         <p className="text-xs text-[var(--warning)]">
                           Total: {formatCLP(p.total_amount)} · Pendiente: {formatCLP(p.total_amount - p.amount)}
                         </p>
@@ -366,25 +455,41 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                   {/* Badges y Pie */}
                   <div className="flex items-center justify-between pt-2">
                     <div className="flex gap-2">
-                      <span
-                        className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
-                        style={{
-                          backgroundColor: `${METHOD_COLORS[p.method]}15`,
-                          color: METHOD_COLORS[p.method],
-                          borderColor: `${METHOD_COLORS[p.method]}30`,
-                        }}
-                      >
-                        {[p.method, ...p.additional_methods].map((m) => METHOD_LABELS[m]).join(", ")}
-                      </span>
+                      {!p.isPendingOnly && (
+                        <span
+                          className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
+                          style={{
+                            backgroundColor: `${METHOD_COLORS[p.method]}15`,
+                            color: METHOD_COLORS[p.method],
+                            borderColor: `${METHOD_COLORS[p.method]}30`,
+                          }}
+                        >
+                          {[p.method, ...p.additional_methods].map((m) => METHOD_LABELS[m]).join(", ")}
+                        </span>
+                      )}
                       <span
                         className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[p.status]}`}
                       >
                         {STATUS_LABELS[p.status]}
                       </span>
                     </div>
-                    <span className="text-xs text-[var(--muted)]">
-                      Por: {p.registered_by.split(' ')[0]}
-                    </span>
+                    {p.isPendingOnly ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/dashboard/payments?reservation=${p.reservation_id}`);
+                        }}
+                        className="inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-[var(--primary)]/90"
+                      >
+                        <PlusCircle className="h-3 w-3 shrink-0" />
+                        Registrar pago
+                      </button>
+                    ) : (
+                      <span className="text-xs text-[var(--muted)]">
+                        Por: {p.registered_by.split(' ')[0]}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -437,24 +542,34 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                     key={p.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelectedPayment(p)}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedPayment(p)}
+                    onClick={() => {
+                      if (p.isPendingOnly) router.push(`/dashboard/payments?reservation=${p.reservation_id}`);
+                      else setSelectedPayment(p);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && (p.isPendingOnly ? router.push(`/dashboard/payments?reservation=${p.reservation_id}`) : setSelectedPayment(p))}
                     className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]/50 cursor-pointer"
                   >
                     <td className="px-4 py-3 text-[var(--muted)]">
-                      {formatDateTime(p.paid_at)}
+                      {p.isPendingOnly ? "—" : formatDateTime(p.paid_at)}
                     </td>
                     <td className="px-4 py-3 font-medium text-[var(--foreground)]">
                       <div>
-                      <p className="font-medium text-[var(--foreground)]">{p.guest_name}</p>
-                      <p className="text-xs text-[var(--muted)]">{p.guest_type === "COMPANY" ? "Empresa" : "Persona"}</p>
-                    </div>
+                        <p className="font-medium text-[var(--foreground)]">{p.guest_name}</p>
+                        <p className="text-xs text-[var(--muted)]">{p.guest_type === "COMPANY" ? "Empresa" : "Persona"}</p>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-[var(--foreground)]">
                       {p.room_number}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-[var(--foreground)]">
-                      {p.total_amount != null && p.status === "partial" ? (
+                      {p.isPendingOnly && p.total_amount != null ? (
+                        <span>
+                          {formatCLP(0)}{" "}
+                          <span className="text-[var(--muted)] font-normal">
+                            / {formatCLP(p.total_amount)} — Pendiente: {formatCLP(p.total_amount)}
+                          </span>
+                        </span>
+                      ) : p.total_amount != null && p.status === "partial" ? (
                         <span>
                           {formatCLP(p.amount)}{" "}
                           <span className="text-[var(--muted)] font-normal">
@@ -466,16 +581,20 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"
-                        style={{
-                          backgroundColor: `${METHOD_COLORS[p.method]}20`,
-                          color: METHOD_COLORS[p.method],
-                          borderColor: `${METHOD_COLORS[p.method]}40`,
-                        }}
-                      >
-                        {[p.method, ...p.additional_methods].map((m) => METHOD_LABELS[m]).join(", ")}
-                      </span>
+                      {p.isPendingOnly ? (
+                        <span className="text-[var(--muted)]">—</span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium"
+                          style={{
+                            backgroundColor: `${METHOD_COLORS[p.method]}20`,
+                            color: METHOD_COLORS[p.method],
+                            borderColor: `${METHOD_COLORS[p.method]}40`,
+                          }}
+                        >
+                          {[p.method, ...p.additional_methods].map((m) => METHOD_LABELS[m]).join(", ")}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -485,18 +604,33 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                       </span>
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
-                      {p.registered_by}
+                      {p.isPendingOnly ? "—" : p.registered_by}
                     </td>
                     <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => p.reservation_status !== "pending" && setPaymentToDelete(p)}
-                        className={`rounded-lg p-1.5 ${p.reservation_status === "pending" ? "cursor-not-allowed opacity-50" : "text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"}`}
-                        title={p.reservation_status === "pending" ? "Confirme la reserva para habilitar acciones" : "Eliminar registro"}
-                        aria-label={p.reservation_status === "pending" ? "Reserva pendiente" : "Eliminar registro"}
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                      {p.isPendingOnly ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(`/dashboard/payments?reservation=${p.reservation_id}`);
+                          }}
+                          className="inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-[var(--primary)]/90 min-w-[8.5rem]"
+                          title="Registrar primer pago"
+                        >
+                          <PlusCircle className="h-3.5 w-3.5 shrink-0" />
+                          Registrar pago
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => p.reservation_status !== "pending" && setPaymentToDelete(p)}
+                          className={`rounded-lg p-1.5 ${p.reservation_status === "pending" ? "cursor-not-allowed opacity-50" : "text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"}`}
+                          title={p.reservation_status === "pending" ? "Confirme la reserva para habilitar acciones" : "Eliminar registro"}
+                          aria-label={p.reservation_status === "pending" ? "Reserva pendiente" : "Eliminar registro"}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -570,7 +704,7 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
           document.body
         )}
 
-      {selectedPayment && typeof document !== "undefined" &&
+      {selectedPayment && !selectedPayment.isPendingOnly && typeof document !== "undefined" &&
         createPortal(
           <EditPaymentModal
             payment={selectedPayment}

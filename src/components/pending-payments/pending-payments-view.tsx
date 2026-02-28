@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Building2,
   User,
@@ -9,6 +10,7 @@ import {
   DollarSign,
   Clock,
   AlertCircle,
+  CreditCard,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -48,7 +50,8 @@ export function PendingPaymentsView({
     (p) =>
       !personSearch ||
       p.guestName.toLowerCase().includes(personSearch.toLowerCase()) ||
-      p.roomNumber.includes(personSearch)
+      p.roomNumber.includes(personSearch) ||
+      (p.companyName?.toLowerCase().includes(personSearch.toLowerCase()) ?? false)
   );
 
   const totalCompaniesPending = filteredCompanies.reduce((s, c) => s + c.pendingAmount, 0);
@@ -97,7 +100,7 @@ export function PendingPaymentsView({
             {formatCLP(totalPersonsPending)}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            {filteredPersons.length} persona(s) con saldo pendiente
+            {filteredPersons.length} reserva(s) con saldo pendiente
           </p>
         </div>
       </div>
@@ -134,7 +137,7 @@ export function PendingPaymentsView({
             filteredCompanies.map((company) => (
               <div
                 key={company.id}
-                className="grid grid-cols-1 gap-4 p-4 sm:p-5 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center hover:bg-[var(--background)]/50"
+                className="grid grid-cols-1 gap-4 p-4 sm:p-5 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] sm:items-center hover:bg-[var(--background)]/50"
               >
                 <div className="flex min-w-0 gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
@@ -173,6 +176,15 @@ export function PendingPaymentsView({
                   <Clock className="h-3.5 w-3.5" />
                   <span>{company.business_days_remaining} d. hábiles</span>
                 </div>
+                <div className="sm:justify-self-end">
+                  <Link
+                    href={`/dashboard/payments?reservation=${company.id}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-3 py-1.5 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20"
+                  >
+                    <CreditCard className="h-3.5 w-3.5" />
+                    Registrar pago
+                  </Link>
+                </div>
               </div>
             ))
           )}
@@ -185,7 +197,7 @@ export function PendingPaymentsView({
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="flex items-center gap-2 text-lg font-semibold text-[var(--foreground)]">
               <User className="h-5 w-5 text-[var(--warning)]" />
-              Personas con saldo pendiente
+              Reservas con saldo pendiente
             </h3>
             <div className="relative min-w-[200px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
@@ -199,7 +211,7 @@ export function PendingPaymentsView({
             </div>
           </div>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Huéspedes que han realizado abonos y tienen saldo por pagar.
+            Personas y empresas (sin orden de compra) con saldo pendiente.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -224,16 +236,19 @@ export function PendingPaymentsView({
                 <th className="px-4 py-3 font-medium text-[var(--foreground)]">
                   Check-out
                 </th>
+                <th className="px-4 py-3 font-medium text-[var(--foreground)]">
+                  Acciones
+                </th>
               </tr>
             </thead>
             <tbody>
               {filteredPersons.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-12 text-center text-[var(--muted)]"
                   >
-                    No hay personas con saldo pendiente
+                    No hay reservas con saldo pendiente
                   </td>
                 </tr>
               ) : (
@@ -246,9 +261,16 @@ export function PendingPaymentsView({
                       <div>
                         <p className="font-medium text-[var(--foreground)]">
                           {person.guestName}
+                          {person.companyName && (
+                            <span className="ml-1.5 rounded-full bg-[var(--secondary)]/20 px-2 py-0.5 text-xs font-medium text-[var(--secondary)]">
+                              Empresa
+                            </span>
+                          )}
                         </p>
-                        {person.guestPhone && (
+                        {(person.guestPhone || person.companyName) && (
                           <p className="text-xs text-[var(--muted)]">
+                            {person.companyName && <span>{person.companyName}</span>}
+                            {person.companyName && person.guestPhone && " · "}
                             {person.guestPhone}
                           </p>
                         )}
@@ -271,6 +293,15 @@ export function PendingPaymentsView({
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {formatDate(person.checkOut)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/dashboard/payments?reservation=${person.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-3 py-1.5 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20"
+                      >
+                        <CreditCard className="h-3.5 w-3.5" />
+                        Registrar pago
+                      </Link>
                     </td>
                   </tr>
                 ))

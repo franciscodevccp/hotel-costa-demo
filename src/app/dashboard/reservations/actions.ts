@@ -163,13 +163,14 @@ export async function createReservationsBulk(payload: {
   downPaymentMethod: string;
   paymentTermDays?: number | null;
   notes?: string | null;
+  customTotalAmount?: number | null;
 }): Promise<CreateReservationsBulkState> {
   const session = await auth();
   if (!session?.user?.establishmentId) {
     return { error: "No autorizado" };
   }
 
-  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes } = payload;
+  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes, customTotalAmount } = payload;
   const isPurchaseOrder = downPaymentMethod === "PURCHASE_ORDER";
   if (isPurchaseOrder && (!paymentTermDays || paymentTermDays < 1)) {
     return { error: "Indique los días hábiles para pagar (orden de compra)" };
@@ -233,10 +234,17 @@ export async function createReservationsBulk(payload: {
     let downPaymentRemaining = Math.max(0, downPayment);
     let created = 0;
 
-    for (const line of validLines) {
+    for (let i = 0; i < validLines.length; i++) {
+      const line = validLines[i];
       const room = roomMap.get(line.roomId);
       if (!room) continue;
-      const totalAmount = room.pricePerNight * nights;
+      const calculatedTotal = room.pricePerNight * nights;
+      const totalAmount =
+        validLines.length === 1 &&
+        customTotalAmount != null &&
+        customTotalAmount > 0
+          ? customTotalAmount
+          : calculatedTotal;
 
       const reservation = await prisma.reservation.create({
         data: {

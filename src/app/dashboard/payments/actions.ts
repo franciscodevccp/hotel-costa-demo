@@ -170,6 +170,61 @@ export async function completePaymentWithRest(
   }
 }
 
+export type RegisterFirstPaymentState = { error?: string; success?: boolean };
+
+/** Registrar el primer pago de una reserva que aún no tiene ningún pago. */
+export async function registerFirstPayment(
+  reservationId: string,
+  amount: number,
+  method: PaymentMethodValue
+): Promise<RegisterFirstPaymentState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId || !session.user?.id) {
+    return { error: "No autorizado" };
+  }
+  if (typeof amount !== "number" || amount <= 0) {
+    return { error: "Monto inválido" };
+  }
+  if (!VALID_METHODS.includes(method)) {
+    return { error: "Método de pago no válido" };
+  }
+
+  try {
+    const reservation = await prisma.reservation.findFirst({
+      where: { id: reservationId, establishmentId: session.user.establishmentId },
+      include: { payments: true },
+    });
+    if (!reservation) {
+      return { error: "Reserva no encontrada" };
+    }
+    const existingSum = reservation.payments.reduce((s, p) => s + p.amount, 0);
+    const totalAmount = reservation.totalAmount;
+    if (amount > totalAmount) {
+      return { error: `El monto no puede superar el total de la reserva (${totalAmount} CLP)` };
+    }
+    const status = amount >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+
+    await prisma.payment.create({
+      data: {
+        establishmentId: session.user.establishmentId,
+        reservationId: reservation.id,
+        registeredById: session.user.id,
+        amount: Math.round(amount),
+        method,
+        status,
+        notes: "Primer pago registrado desde Pagos",
+      },
+    });
+    revalidatePath("/dashboard/payments");
+    revalidatePath("/dashboard/pending-payments");
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al registrar el pago";
+    return { error: message };
+  }
+}
+
 export type DeletePaymentState = { error?: string; success?: boolean };
 
 /** Eliminar un registro de pago. Admin y recepcionista. */

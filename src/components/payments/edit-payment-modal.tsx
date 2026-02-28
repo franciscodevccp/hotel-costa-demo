@@ -3,12 +3,7 @@
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
-import {
-  updatePayment,
-  completePaymentWithRest,
-  type PaymentStatusValue,
-  type PaymentMethodValue,
-} from "@/app/dashboard/payments/actions";
+import { completePaymentWithRest, type PaymentMethodValue } from "@/app/dashboard/payments/actions";
 import type { PaymentRow } from "./admin-payments-view";
 
 const METHOD_LABELS: Record<string, string> = {
@@ -17,12 +12,6 @@ const METHOD_LABELS: Record<string, string> = {
   credit: "Crédito",
   transfer: "Transferencia",
   other: "Otro",
-};
-const STATUS_LABELS: Record<string, string> = {
-  pending: "Pendiente",
-  partial: "Pago de abono",
-  completed: "Pago total",
-  refunded: "Reembolsado",
 };
 
 function formatCLP(amount: number) {
@@ -52,22 +41,14 @@ export function EditPaymentModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [amount, setAmount] = useState(String(payment.amount));
-  const [method, setMethod] = useState(payment.method);
-  const [status, setStatus] = useState(payment.status);
-  const [saving, setSaving] = useState(false);
   const [addingNew, setAddingNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const totalReserva = payment.total_amount ?? payment.amount;
-  const amountNum = parseInt(amount.replace(/\D/g, ""), 10) || 0;
   const paymentsOfReservation = payments.filter(
     (p) => p.reservation_id === payment.reservation_id
   );
-  const totalPagado =
-    paymentsOfReservation
-      .filter((p) => p.id !== payment.id)
-      .reduce((s, p) => s + p.amount, 0) + amountNum;
+  const totalPagado = paymentsOfReservation.reduce((s, p) => s + p.amount, 0);
   const pendiente = Math.max(0, totalReserva - totalPagado);
 
   const [newPaymentAmount, setNewPaymentAmount] = useState("");
@@ -108,29 +89,6 @@ export function EditPaymentModal({
       hour: "2-digit",
       minute: "2-digit",
     });
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const num = parseInt(amount.replace(/\D/g, ""), 10);
-    if (Number.isNaN(num) || num < 0) {
-      setError("Ingrese un monto válido");
-      return;
-    }
-    setSaving(true);
-    const result = await updatePayment(payment.id, {
-      amount: num,
-      method: method.toUpperCase() as PaymentMethodValue,
-      status: status.toUpperCase() as PaymentStatusValue,
-    });
-    setSaving(false);
-    if (result.error) {
-      setError(result.error);
-      return;
-    }
-    onSaved();
-    onClose();
-  }
 
   async function handleAddNewPayment() {
     setError(null);
@@ -186,7 +144,7 @@ export function EditPaymentModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 md:p-6">
+        <div className="p-4 md:p-6">
           {editingDisabled && (
             <div className="mb-4 rounded-lg border border-[var(--warning)]/50 bg-[var(--warning)]/10 p-4 text-sm text-[var(--foreground)]">
               La reserva está pendiente de confirmación. Confirme la reserva en <strong>Reservaciones</strong> para habilitar la edición del estado de pago y registrar pagos.
@@ -326,53 +284,6 @@ export function EditPaymentModal({
             </div>
           </div>
 
-          {/* Editar este pago (secundario) - ancho completo */}
-          <details className={`rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 mt-4 md:mt-6 ${editingDisabled ? "opacity-75" : ""}`}>
-            <summary className="cursor-pointer text-sm font-medium text-[var(--foreground)]">
-              Editar este registro de pago
-              {editingDisabled && " (confirme la reserva para habilitar)"}
-            </summary>
-            <div className="mt-3 space-y-3 pt-3 border-t border-[var(--border)]">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Monto (este pago)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={formatThousands(amount)}
-                  onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))}
-                  disabled={editingDisabled}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-60 disabled:cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Método</label>
-                <CustomSelect
-                  value={method}
-                  onChange={(v) => setMethod(v as typeof method)}
-                  placeholder="Método"
-                  options={(Object.keys(METHOD_LABELS) as (keyof typeof METHOD_LABELS)[]).map((m) => ({
-                    value: m,
-                    label: METHOD_LABELS[m],
-                  }))}
-                  className={`w-full ${editingDisabled ? "pointer-events-none opacity-60" : ""}`}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Estado</label>
-                <CustomSelect
-                  value={status}
-                  onChange={(v) => setStatus(v as typeof status)}
-                  placeholder="Estado"
-                  options={(Object.keys(STATUS_LABELS) as (keyof typeof STATUS_LABELS)[]).map((s) => ({
-                    value: s,
-                    label: STATUS_LABELS[s],
-                  }))}
-                  className={`w-full ${editingDisabled ? "pointer-events-none opacity-60" : ""}`}
-                />
-              </div>
-            </div>
-          </details>
-
           {error && (
             <p className="text-sm text-red-600 mt-4" role="alert">
               {error}
@@ -385,17 +296,10 @@ export function EditPaymentModal({
               onClick={onClose}
               className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:opacity-90"
             >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={editingDisabled || saving}
-              className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {saving ? "Guardando…" : "Guardar cambios"}
+              Cerrar
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
