@@ -1,9 +1,9 @@
 "use client";
 
-import { TrendingUp, DollarSign, BedDouble, Calendar } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { useCallback } from "react";
+import { DollarSign, BedDouble, Calendar, Moon, ClipboardList } from "lucide-react";
 import {
-  LineChart,
-  Line,
   AreaChart,
   Area,
   BarChart,
@@ -18,7 +18,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { format } from "date-fns";
+import { format, eachDayOfInterval, startOfMonth, endOfMonth } from "date-fns";
 import { es } from "date-fns/locale";
 
 const formatCLP = (value: number) =>
@@ -89,20 +89,60 @@ function renderPieLabel(props: {
   );
 }
 
-export function AdminReportsView({ data }: { data: ReportData }) {
-  const now = new Date();
-  const monthLabel = format(now, "MMMM yyyy", { locale: es });
+const MESES: { value: number; label: string }[] = [
+  { value: 1, label: "Enero" }, { value: 2, label: "Febrero" }, { value: 3, label: "Marzo" },
+  { value: 4, label: "Abril" }, { value: 5, label: "Mayo" }, { value: 6, label: "Junio" },
+  { value: 7, label: "Julio" }, { value: 8, label: "Agosto" }, { value: 9, label: "Septiembre" },
+  { value: 10, label: "Octubre" }, { value: 11, label: "Noviembre" }, { value: 12, label: "Diciembre" },
+];
+
+export function AdminReportsView({
+  data,
+  year,
+  month,
+}: {
+  data: ReportData;
+  year: number;
+  month: number;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const monthLabel = format(new Date(year, month - 1, 1), "MMMM yyyy", { locale: es });
+
+  const goToPeriod = useCallback(
+    (newYear: number, newMonth: number) => {
+      const params = new URLSearchParams();
+      params.set("year", String(newYear));
+      params.set("month", String(newMonth));
+      router.push(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router]
+  );
   const ingresoTotal = data.monthlyTotal;
   const prevTotal = data.prevMonthlyTotal;
   const comparacionMesAnterior = prevTotal
     ? Math.round(((ingresoTotal - prevTotal) / prevTotal) * 100)
     : 0;
-  const dailyIncomeArray = Object.entries(data.dailyIncome)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([dateStr, ingresos]) => ({
-      fecha: format(new Date(dateStr), "d MMM", { locale: es }),
-      ingresos,
-    }));
+
+  const periodStart = startOfMonth(new Date(year, month - 1, 1));
+  const periodEnd = endOfMonth(new Date(year, month - 1, 1));
+  const allDaysInMonth = eachDayOfInterval({ start: periodStart, end: periodEnd });
+
+  const dailyIncomeArray = allDaysInMonth.map((day) => {
+    const dateStr = day.toISOString().slice(0, 10);
+    return {
+      fecha: format(day, "d MMM", { locale: es }),
+      ingresos: data.dailyIncome[dateStr] ?? 0,
+    };
+  });
+  const dailyOccupancyArray = allDaysInMonth.map((day) => {
+    const dateStr = day.toISOString().slice(0, 10);
+    return {
+      fecha: format(day, "d MMM", { locale: es }),
+      ocupacion: data.dailyOccupancy?.[dateStr] ?? 0,
+    };
+  });
+
   const paymentBreakdownWithColors = data.paymentBreakdown.map((r) => ({
     name: METHOD_LABELS[r.name] ?? r.name,
     value: r.value,
@@ -112,10 +152,30 @@ export function AdminReportsView({ data }: { data: ReportData }) {
     habitacion: `Hab. ${r.roomNumber}`,
     reservas: r.count,
   }));
-  const ocupacionPromedio = 0; // no calculado en reportes por ahora
-  const ticketPromedio = 0; // no tenemos noches vendidas en el reporte actual
-  const daysWithData = Object.keys(data.dailyIncome).length;
-  const dailyOccupancyArray = dailyIncomeArray.map(({ fecha }) => ({ fecha, ocupacion: 0 }));
+  const ocupacionPromedio =
+    dailyOccupancyArray.length > 0
+      ? Math.round(
+          dailyOccupancyArray.reduce((s, d) => s + d.ocupacion, 0) / dailyOccupancyArray.length
+        )
+      : 0;
+  const prevOcupacionPromedio = data.prevOcupacionPromedio ?? 0;
+  const comparacionOcupacion =
+    prevOcupacionPromedio > 0
+      ? Math.round(((ocupacionPromedio - prevOcupacionPromedio) / prevOcupacionPromedio) * 100)
+      : 0;
+
+  const nightsSold = data.nightsSold ?? 0;
+  const prevNightsSold = data.prevNightsSold ?? 0;
+  const comparacionNoches =
+    prevNightsSold > 0
+      ? Math.round(((nightsSold - prevNightsSold) / prevNightsSold) * 100)
+      : 0;
+  const reservationCount = data.reservationCount ?? 0;
+  const maxIngresos =
+    dailyIncomeArray.length > 0
+      ? Math.max(...dailyIncomeArray.map((d) => d.ingresos), 1)
+      : 1;
+  const domainIngresos = [0, Math.ceil((maxIngresos * 1.1) / 1000) * 1000 || 1000];
 
   return (
     <div className="space-y-8">
@@ -130,14 +190,50 @@ export function AdminReportsView({ data }: { data: ReportData }) {
         </p>
       </div>
 
-      {/* Selector de mes */}
+      {/* Selector de período */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 shadow-sm">
-        <p className="text-sm font-medium text-[var(--foreground)]">
-          Período: <span className="text-[var(--primary)]">{monthLabel}</span>
+        <p className="mb-3 text-sm font-medium text-[var(--foreground)]">
+          Período consultado
         </p>
-        <p className="mt-0.5 text-xs text-[var(--muted)]">
-          (En una versión futura podrás elegir el mes a consultar)
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="report-month" className="text-xs text-[var(--muted)]">
+              Mes
+            </label>
+            <select
+              id="report-month"
+              value={month}
+              onChange={(e) => goToPeriod(year, Number(e.target.value))}
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            >
+              {MESES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="report-year" className="text-xs text-[var(--muted)]">
+              Año
+            </label>
+            <select
+              id="report-year"
+              value={year}
+              onChange={(e) => goToPeriod(Number(e.target.value), month)}
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            >
+              {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+          <span className="text-sm text-[var(--muted)]">
+            → Resumen de <span className="font-medium text-[var(--primary)]">{monthLabel}</span>
+          </span>
+        </div>
       </div>
 
       {/* Métricas del mes */}
@@ -150,32 +246,45 @@ export function AdminReportsView({ data }: { data: ReportData }) {
             title="Ocupación promedio"
             value={`${ocupacionPromedio}%`}
             icon={BedDouble}
-            description="Habitaciones ocupadas en promedio"
-            trend={{ value: comparacionMesAnterior, isPositive: true }}
+            description="Habitaciones ocupadas en promedio en el mes"
+            trend={
+              prevOcupacionPromedio > 0
+                ? { value: comparacionOcupacion, isPositive: comparacionOcupacion >= 0 }
+                : undefined
+            }
           />
           <StatCard
             title="Ingreso total"
             value={formatCLP(ingresoTotal)}
             icon={DollarSign}
-            trend={{ value: comparacionMesAnterior, isPositive: comparacionMesAnterior >= 0 }}
+            description="Total cobrado en el período"
+            trend={
+              prevTotal > 0
+                ? { value: comparacionMesAnterior, isPositive: comparacionMesAnterior >= 0 }
+                : undefined
+            }
           />
           <StatCard
-            title="Ticket promedio por noche"
-            value={formatCLP(ticketPromedio)}
-            icon={TrendingUp}
-            description="Ingreso por noche vendida"
-            trend={{ value: 3, isPositive: true }}
+            title="Noches vendidas"
+            value={String(nightsSold)}
+            icon={Moon}
+            description="Noches-habitación vendidas en el mes"
+            trend={
+              prevNightsSold > 0
+                ? { value: comparacionNoches, isPositive: comparacionNoches >= 0 }
+                : undefined
+            }
           />
           <StatCard
-            title="Días con datos"
-            value={String(daysWithData)}
-            icon={Calendar}
-            description="Días del mes con actividad"
+            title="Reservas en el mes"
+            value={String(reservationCount)}
+            icon={ClipboardList}
+            description="Reservas con estadía en el período"
           />
         </div>
       </div>
 
-      {/* Gráfico: Ingresos diarios */}
+      {/* Gráfico: Ingresos diarios (mismo diseño que Ocupación diaria) */}
       <div className="reports-chart rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 md:p-6 shadow-sm">
         <h3 className="mb-2 text-base font-semibold text-[var(--foreground)]">
           Ingresos diarios del mes
@@ -185,12 +294,18 @@ export function AdminReportsView({ data }: { data: ReportData }) {
         </p>
         <div className="h-60 md:h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart
+            <AreaChart
               id="incomeChart"
               syncId="income"
               data={dailyIncomeArray}
               margin={{ top: 5, right: 10, left: -10, bottom: 0 }}
             >
+              <defs>
+                <linearGradient id="colorIngresos" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis
                 dataKey="fecha"
@@ -205,8 +320,9 @@ export function AdminReportsView({ data }: { data: ReportData }) {
                 stroke="var(--border)"
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v) => `$${v / 1000}k`}
-                width={40}
+                domain={domainIngresos}
+                tickFormatter={(v) => formatCLP(v)}
+                width={36}
               />
               <Tooltip
                 formatter={(value: number | undefined) => [value != null ? formatCLP(value) : "", "Ingresos"]}
@@ -219,16 +335,15 @@ export function AdminReportsView({ data }: { data: ReportData }) {
                   fontSize: "12px"
                 }}
               />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="ingresos"
                 name="Ingresos"
                 stroke="var(--primary)"
                 strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 4, strokeWidth: 0 }}
+                fill="url(#colorIngresos)"
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -270,8 +385,8 @@ export function AdminReportsView({ data }: { data: ReportData }) {
                 tickLine={false}
                 axisLine={false}
                 domain={[0, 100]}
-                unit="%"
-                width={30}
+                tickFormatter={(v) => `${v}%`}
+                width={36}
               />
               <Tooltip
                 formatter={(value: number | undefined) => [value != null ? `${value}%` : "", "Ocupación"]}

@@ -4,7 +4,7 @@ import { AdminReservationsView } from "./admin-reservations-view";
 import type { ReservationDisplay } from "./admin-reservations-view";
 
 type RoomOption = { id: string; roomNumber: string; pricePerNight: number };
-type GuestOption = { id: string; fullName: string; email: string };
+type GuestOption = { id: string; fullName: string; email: string; type?: "PERSON" | "COMPANY" };
 
 export function ReceptionistReservationsView({
   reservations,

@@ -24,11 +24,13 @@ function businessDaysBetween(from: Date, to: Date): number {
   return count;
 }
 
+/** Solo empresas con orden de compra (paymentTermDays > 0) aparecen aquí. */
 export async function getPendingCompanies(establishmentId: string) {
   const reservations = await prisma.reservation.findMany({
     where: {
       establishmentId,
       companyName: { not: null },
+      paymentTermDays: { not: null, gt: 0 },
       status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
     },
     include: { guest: true, room: true },

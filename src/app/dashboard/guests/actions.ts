@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getReservationsByGuestId } from "@/lib/queries/reservations";
 
-export type CreateGuestState = { error?: string; guest?: { id: string; fullName: string; email: string } };
+export type CreateGuestState = { error?: string; guest?: { id: string; fullName: string; email: string; type: "PERSON" | "COMPANY" } };
 
 export async function createGuest(
   _prev: CreateGuestState,
@@ -20,6 +20,10 @@ export async function createGuest(
   const email = formData.get("email")?.toString()?.trim() || null;
   const phone = formData.get("phone")?.toString()?.trim() || null;
   const rut = formData.get("rut")?.toString()?.trim() || null;
+  const guestType = formData.get("guestType")?.toString()?.toUpperCase() === "COMPANY" ? "COMPANY" : "PERSON";
+  const companyName = formData.get("companyName")?.toString()?.trim() || null;
+  const companyRut = formData.get("companyRut")?.toString()?.trim() || null;
+  const companyEmail = formData.get("companyEmail")?.toString()?.trim() || null;
   const emergencyContactName = formData.get("emergencyContactName")?.toString()?.trim() || null;
   const emergencyContactPhone = formData.get("emergencyContactPhone")?.toString()?.trim() || null;
   const emergencyContact =
@@ -32,19 +36,22 @@ export async function createGuest(
   if (!email) return { error: "El email es obligatorio" };
   if (!phone) return { error: "El teléfono es obligatorio" };
   if (!rut) return { error: "El RUT es obligatorio" };
+  if (guestType === "COMPANY" && !companyName) return { error: "La razón social es obligatoria para empresas" };
 
   try {
     const guest = await prisma.guest.create({
       data: {
         establishmentId: session.user.establishmentId,
+        type: guestType,
         fullName,
         email: email!,
         phone: phone!,
         rut,
         emergencyContact,
         nationality,
+        ...(guestType === "COMPANY" ? { companyName, companyRut, companyEmail } : {}),
       },
-      select: { id: true, fullName: true, email: true },
+      select: { id: true, fullName: true, email: true, type: true },
     });
     revalidatePath("/dashboard/guests");
     revalidatePath("/dashboard/reservations");
@@ -53,6 +60,7 @@ export async function createGuest(
         id: guest.id,
         fullName: guest.fullName,
         email: guest.email ?? "",
+        type: guest.type,
       },
     };
   } catch (e) {

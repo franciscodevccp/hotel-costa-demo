@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Users, Mail, Phone, MapPin, Lock, X, Calendar, Plus, Trash2 } from "lucide-react";
+import { Search, Users, Lock, X, Calendar, Plus, Trash2 } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, deleteGuest, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
 
@@ -185,73 +185,61 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
             return (
               <div
                 key={guest.id}
-                className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm transition-all hover:shadow-md"
+                className="relative rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm transition-all hover:shadow-md min-[700px]:p-4"
               >
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div className="flex gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10 shadow-sm">
-                      <Users className="h-6 w-6 text-[var(--primary)]" />
+                <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-[1fr_auto] min-[700px]:gap-6 min-[700px]:items-center">
+                  <div className="flex min-w-0 gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
+                      <Users className="h-5 w-5 text-[var(--primary)]" />
                     </div>
-                    <div className="flex-1 space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="font-semibold text-[var(--foreground)]">{guest.fullName}</h3>
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[status]}`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold text-[var(--foreground)] truncate">{guest.fullName}</h3>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${guest.type === "COMPANY" ? "bg-[var(--secondary)]/20 text-[var(--secondary)]" : "bg-[var(--muted)]/20 text-[var(--muted)]"}`}>
+                          {guest.type === "COMPANY" ? "Empresa" : "Persona"}
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[status]}`}>
                           {statusLabels[status]}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm text-[var(--muted)] sm:grid-cols-2">
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                          <span className="truncate">{guest.email ?? "—"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                          <span>{guest.phone ?? "—"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                          <span>{guest.nationality ?? "—"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded border border-[var(--border)] px-1 font-mono text-xs text-[var(--muted)]/70">RUT</span>
-                          <span>{guest.rut ?? "—"}</span>
-                        </div>
-                        {guest.emergencyContact && (
-                          <div className="flex items-center gap-2 sm:col-span-2">
-                            <Phone className="h-4 w-4 shrink-0 text-[var(--warning)]/80" />
-                            <span className="text-xs font-medium text-[var(--muted)]">Contacto de emergencia:</span>
-                            <span className="text-sm text-[var(--foreground)]">{guest.emergencyContact}</span>
-                          </div>
-                        )}
-                      </div>
+                      <p className="mt-1 text-sm text-[var(--muted)] truncate">
+                        {guest.email ?? "—"} · {guest.phone ?? "—"}
+                      </p>
+                      <p className="mt-0.5 text-sm text-[var(--muted)]">
+                        RUT {guest.rut ?? "—"}
+                      </p>
+                      {guest.emergencyContact && (
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          Emergencia: {guest.emergencyContact}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <div className="mt-2 flex flex-col gap-3 border-t border-[var(--border)] pt-4 md:mt-0 md:border-0 md:pt-0 md:text-right">
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setGuestToEdit(guest)}
-                        className="flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setGuestHistory(guest)}
-                        className="flex items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[var(--primary)]/90"
-                      >
-                        Ver historial
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setGuestToDelete(guest); setDeleteError(null); }}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
-                        title="Eliminar huésped"
-                        aria-label="Eliminar huésped"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
+
+                  <div className="flex flex-wrap items-center gap-2 min-[700px]:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setGuestToEdit(guest)}
+                      className="flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGuestHistory(guest)}
+                      className="flex items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[var(--primary)]/90"
+                    >
+                      Ver historial
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setGuestToDelete(guest); setDeleteError(null); }}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                      title="Eliminar huésped"
+                      aria-label="Eliminar huésped"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
               </div>

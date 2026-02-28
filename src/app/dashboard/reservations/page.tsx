@@ -29,6 +29,7 @@ export default async function ReservationsPage() {
         guest_name: guest.fullName,
         guest_email: guest.email ?? "",
         guest_phone: guest.phone ?? "",
+        guest_type: guest.type,
         room_number: room.roomNumber,
         room_type: room.type,
         check_in: format(r.checkIn, "yyyy-MM-dd"),
@@ -39,11 +40,17 @@ export default async function ReservationsPage() {
         pending_amount: Math.max(0, r.totalAmount - paid),
         nights: differenceInDays(r.checkOut, r.checkIn),
         guests: r.numGuests,
+        payment_term_days: r.paymentTermDays ?? undefined,
       };
     });
   const roomNumbers = rooms.map((r) => r.roomNumber).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const roomsForForm = rooms.map((r) => ({ id: r.id, roomNumber: r.roomNumber, pricePerNight: r.pricePerNight }));
-  const guestsForForm = guests.map((g) => ({ id: g.id, fullName: g.fullName, email: g.email ?? "" }));
+  const guestsForForm = guests.map((g) => ({
+    id: g.id,
+    fullName: g.fullName,
+    email: g.email ?? "",
+    type: g.type,
+  }));
 
   return (
     <div className="p-6">

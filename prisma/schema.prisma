@@ -98,26 +98,37 @@ enum RoomStatus {
 }
 
 // ─── Guest ────────────────────────────────────────────────────────────────
+enum GuestType {
+  PERSON
+  COMPANY
+}
+
 model Guest {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   establishmentId   String
-  fullName          String
-  rut               String?
+  type              GuestType @default(PERSON)  // Persona o Empresa (en pagos pendientes se muestran en secciones distintas)
+  fullName          String    // nombre de la persona o del contacto si es empresa
+  rut               String?   // RUT persona o representante
   email             String?
   phone             String?
-  emergencyContact  String?  // contacto de emergencia opcional (nombre y/o teléfono)
-  nationality       String?  @default("Chile")
+  emergencyContact  String?   // contacto de emergencia opcional (nombre y/o teléfono)
+  nationality       String?   @default("Chile")
   notes             String?
-  isBlacklisted     Boolean  @default(false)
-  blockReason       String?  // motivo del bloqueo (por qué se bloqueó al huésped)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  isBlacklisted     Boolean   @default(false)
+  blockReason       String?   // motivo del bloqueo (por qué se bloqueó al huésped)
+  // Datos empresa (cuando type = COMPANY); se usan al crear reserva para aparecer en "Empresas" en pagos pendientes
+  companyName       String?
+  companyRut        String?
+  companyEmail      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   establishment Establishment @relation(fields: [establishmentId], references: [id])
   reservations  Reservation[]
 
   @@index([establishmentId])
   @@index([fullName])
+  @@index([type])
 }
 
 // ─── Reservation ───────────────────────────────────────────────────────────
@@ -172,16 +183,17 @@ enum ReservationSource {
 
 // ─── Payment ───────────────────────────────────────────────────────────────
 model Payment {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   establishmentId String
   reservationId   String
   registeredById  String
-  amount          Int           // monto CLP
-  method          PaymentMethod
-  status          PaymentStatus @default(COMPLETED)
+  amount            Int               // monto CLP (puede acumular abono + resto)
+  method            PaymentMethod     // método del abono inicial
+  additionalMethods PaymentMethod[]   @default([]) // métodos usados en abonos posteriores (sin repetir el inicial)
+  status            PaymentStatus     @default(COMPLETED)
   notes           String?
-  paidAt          DateTime      @default(now())
-  createdAt       DateTime      @default(now())
+  paidAt          DateTime       @default(now())
+  createdAt       DateTime       @default(now())
 
   establishment Establishment @relation(fields: [establishmentId], references: [id])
   reservation   Reservation   @relation(fields: [reservationId], references: [id])

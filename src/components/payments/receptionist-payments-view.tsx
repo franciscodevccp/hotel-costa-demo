@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Search, DollarSign, Calendar, Clock } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
+import { Search, DollarSign, Calendar, Clock, X } from "lucide-react";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { CustomSelect } from "@/components/ui/custom-select";
+import { EditPaymentModal } from "./edit-payment-modal";
+import { deletePayment } from "@/app/dashboard/payments/actions";
 import {
   PieChart,
   Pie,
@@ -47,11 +51,16 @@ const STATUS_STYLES: Record<PaymentStatus, string> = {
 };
 
 export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] }) {
+  const router = useRouter();
   const [methodFilter, setMethodFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null);
+  const [paymentToDelete, setPaymentToDelete] = useState<PaymentRow | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", {
@@ -81,12 +90,29 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
     .filter((p) => p.status === "partial" && p.total_amount != null)
     .reduce((s, p) => s + (p.total_amount! - p.amount), 0);
 
+  const paymentsRelevant = payments.filter(
+    (p) => p.status === "completed" || p.status === "partial"
+  );
+  const methodTotals: Record<PaymentMethod, number> = {
+    cash: 0,
+    debit: 0,
+    credit: 0,
+    transfer: 0,
+    other: 0,
+  };
+  for (const p of paymentsRelevant) {
+    const methods = Array.from(
+      new Set([p.method, ...(p.additional_methods ?? [])])
+    ) as PaymentMethod[];
+    const share = p.amount / methods.length;
+    for (const m of methods) {
+      methodTotals[m] = (methodTotals[m] ?? 0) + share;
+    }
+  }
   const byMethod = (["cash", "debit", "credit", "transfer", "other"] as const)
     .map((method) => ({
       name: METHOD_LABELS[method],
-      value: payments.filter(
-        (p) => p.method === method && (p.status === "completed" || p.status === "partial")
-      ).reduce((s, p) => s + p.amount, 0),
+      value: methodTotals[method] ?? 0,
       color: METHOD_COLORS[method],
     }))
     .filter((d) => d.value > 0);
@@ -293,7 +319,23 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
           ) : (
             <div className="divide-y divide-[var(--border)]">
               {filtered.map((p) => (
-                <div key={p.id} className="p-4 space-y-3">
+                <div
+                  key={p.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedPayment(p)}
+                  onKeyDown={(e) => e.key === "Enter" && setSelectedPayment(p)}
+                  className="p-4 space-y-3 cursor-pointer hover:bg-[var(--background)]/50 active:opacity-90 relative"
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); if (p.reservation_status !== "pending") setPaymentToDelete(p); }}
+                    className={`absolute right-2 top-2 rounded-lg p-1.5 ${p.reservation_status === "pending" ? "cursor-not-allowed opacity-50" : "text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"}`}
+                    title={p.reservation_status === "pending" ? "Confirme la reserva para habilitar acciones" : "Eliminar registro"}
+                    aria-label={p.reservation_status === "pending" ? "Reserva pendiente" : "Eliminar registro"}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                   {/* Cabecera: Fecha y Monto */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[var(--muted)] font-medium">
@@ -314,7 +356,11 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                   {/* Detalles principales */}
                   <div>
                     <p className="font-semibold text-[var(--foreground)]">{p.guest_name}</p>
-                    <p className="text-sm text-[var(--muted)]">Habitación {p.room_number}</p>
+                    <p className="text-xs text-[var(--muted)]">
+                      {p.guest_type === "COMPANY" ? "Empresa" : "Persona"}
+                      <span className="mx-1">·</span>
+                      Hab. {p.room_number}
+                    </p>
                   </div>
 
                   {/* Badges y Pie */}
@@ -328,7 +374,7 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                           borderColor: `${METHOD_COLORS[p.method]}30`,
                         }}
                       >
-                        {METHOD_LABELS[p.method]}
+                        {[p.method, ...p.additional_methods].map((m) => METHOD_LABELS[m]).join(", ")}
                       </span>
                       <span
                         className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[p.status]}`}
@@ -372,13 +418,14 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                 <th className="px-4 py-3 text-left font-semibold text-[var(--foreground)]">
                   Registrado por
                 </th>
+                <th className="w-10 px-2 py-3" aria-label="Eliminar" />
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-8 text-center text-[var(--muted)]"
                   >
                     No hay pagos que coincidan con los filtros
@@ -388,13 +435,20 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                 filtered.map((p) => (
                   <tr
                     key={p.id}
-                    className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]/50"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedPayment(p)}
+                    onKeyDown={(e) => e.key === "Enter" && setSelectedPayment(p)}
+                    className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]/50 cursor-pointer"
                   >
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {formatDateTime(p.paid_at)}
                     </td>
                     <td className="px-4 py-3 font-medium text-[var(--foreground)]">
-                      {p.guest_name}
+                      <div>
+                      <p className="font-medium text-[var(--foreground)]">{p.guest_name}</p>
+                      <p className="text-xs text-[var(--muted)]">{p.guest_type === "COMPANY" ? "Empresa" : "Persona"}</p>
+                    </div>
                     </td>
                     <td className="px-4 py-3 text-[var(--foreground)]">
                       {p.room_number}
@@ -420,7 +474,7 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                           borderColor: `${METHOD_COLORS[p.method]}40`,
                         }}
                       >
-                        {METHOD_LABELS[p.method]}
+                        {[p.method, ...p.additional_methods].map((m) => METHOD_LABELS[m]).join(", ")}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -433,6 +487,17 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {p.registered_by}
                     </td>
+                    <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => p.reservation_status !== "pending" && setPaymentToDelete(p)}
+                        className={`rounded-lg p-1.5 ${p.reservation_status === "pending" ? "cursor-not-allowed opacity-50" : "text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"}`}
+                        title={p.reservation_status === "pending" ? "Confirme la reserva para habilitar acciones" : "Eliminar registro"}
+                        aria-label={p.reservation_status === "pending" ? "Reserva pendiente" : "Eliminar registro"}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -440,6 +505,81 @@ export function ReceptionistPaymentsView({ payments }: { payments: PaymentRow[] 
           </table>
         </div>
       </div>
+
+      {/* Modal confirmar eliminar pago */}
+      {paymentToDelete && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center bg-black/50 p-4"
+            style={{ minHeight: "100dvh" }}
+            onClick={() => { setPaymentToDelete(null); setDeleteError(null); }}
+          >
+            <div
+              className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+                <h3 className="text-lg font-semibold text-[var(--foreground)]">Eliminar registro de pago</h3>
+                <button
+                  type="button"
+                  onClick={() => { setPaymentToDelete(null); setDeleteError(null); }}
+                  className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+                  aria-label="Cerrar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="mt-3 text-sm text-[var(--muted)]">
+                ¿Eliminar el pago de <strong className="text-[var(--foreground)]">{formatCLP(paymentToDelete.amount)}</strong> ({paymentToDelete.guest_name}, habitación {paymentToDelete.room_number})? Esta acción no se puede deshacer.
+              </p>
+              {deleteError && (
+                <p className="mt-3 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                  {deleteError}
+                </p>
+              )}
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setPaymentToDelete(null); setDeleteError(null); }}
+                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={async () => {
+                    setDeleteError(null);
+                    setIsDeleting(true);
+                    const result = await deletePayment(paymentToDelete.id);
+                    setIsDeleting(false);
+                    if (result?.error) {
+                      setDeleteError(result.error);
+                      return;
+                    }
+                    setPaymentToDelete(null);
+                    router.refresh();
+                  }}
+                  className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+                >
+                  {isDeleting ? "Eliminando…" : "Eliminar"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {selectedPayment && typeof document !== "undefined" &&
+        createPortal(
+          <EditPaymentModal
+            payment={selectedPayment}
+            payments={payments}
+            onClose={() => setSelectedPayment(null)}
+            onSaved={() => router.refresh()}
+          />,
+          document.body
+        )}
     </div>
   );
 }

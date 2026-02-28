@@ -134,53 +134,44 @@ export function PendingPaymentsView({
             filteredCompanies.map((company) => (
               <div
                 key={company.id}
-                className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between hover:bg-[var(--background)]/50"
+                className="grid grid-cols-1 gap-4 p-4 sm:p-5 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center hover:bg-[var(--background)]/50"
               >
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
-                    <Building2 className="h-5 w-5 text-[var(--primary)]" />
+                <div className="flex min-w-0 gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
+                    <Building2 className="h-4 w-4 text-[var(--primary)]" />
                   </div>
-                  <div>
-                    <p className="font-semibold text-[var(--foreground)]">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[var(--foreground)] truncate">
                       {company.companyName}
                     </p>
                     <p className="text-xs text-[var(--muted)]">RUT: {company.companyRut ?? "—"}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">
-                      Hab. {company.roomNumber} — {company.guestName}
-                    </p>
                     <p className="text-xs text-[var(--muted)]">
-                      {company.companyEmail ?? "—"}
+                      Hab. {company.roomNumber} — {company.guestName}
+                      {company.companyEmail ? ` · ${company.companyEmail}` : ""}
                     </p>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-4 md:gap-6">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-[var(--muted)]" />
-                    <span className="text-lg font-bold text-[var(--foreground)]">
-                      {formatCLP(company.pendingAmount)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-[var(--muted)]" />
-                    <span className="text-sm text-[var(--foreground)]">
-                      Vence: {formatDate(company.due_date)}
-                    </span>
-                  </div>
-                  <div
-                    className={`flex items-center gap-2 rounded-lg px-3 py-1.5 ${
-                      company.business_days_remaining <= 5
-                        ? "bg-[var(--destructive)]/10 text-[var(--destructive)]"
-                        : company.business_days_remaining <= 10
-                          ? "bg-[var(--warning)]/10 text-[var(--warning)]"
-                          : "bg-[var(--success)]/10 text-[var(--success)]"
-                    }`}
-                  >
-                    <Clock className="h-4 w-4" />
-                    <span className="font-semibold">
-                      {company.business_days_remaining} días hábiles
-                    </span>
-                    <span className="text-xs opacity-90">restantes</span>
-                  </div>
+                <div className="flex items-center gap-2 sm:justify-self-end">
+                  <DollarSign className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+                  <span className="text-base font-bold text-[var(--foreground)] whitespace-nowrap">
+                    {formatCLP(company.pendingAmount)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-[var(--foreground)] whitespace-nowrap">
+                  <Calendar className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+                  <span>Vence: {formatDate(company.due_date)}</span>
+                </div>
+                <div
+                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${
+                    company.business_days_remaining <= 5
+                      ? "bg-[var(--destructive)]/10 text-[var(--destructive)]"
+                      : company.business_days_remaining <= 10
+                        ? "bg-[var(--warning)]/10 text-[var(--warning)]"
+                        : "bg-[var(--success)]/10 text-[var(--success)]"
+                  }`}
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>{company.business_days_remaining} d. hábiles</span>
                 </div>
               </div>
             ))

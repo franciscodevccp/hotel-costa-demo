@@ -18,6 +18,7 @@ export interface ReservationDisplay {
     guest_name: string;
     guest_email: string;
     guest_phone: string;
+    guest_type?: "PERSON" | "COMPANY";
     room_number: string;
     room_type: string;
     check_in: string;
@@ -28,6 +29,7 @@ export interface ReservationDisplay {
     pending_amount?: number;
     nights: number;
     guests: number;
+    payment_term_days?: number | null;
     special_requests?: string;
 }
 
@@ -38,7 +40,7 @@ const RESERVATION_STYLES = [
 ];
 
 type RoomOption = { id: string; roomNumber: string; pricePerNight: number };
-type GuestOption = { id: string; fullName: string; email: string };
+type GuestOption = { id: string; fullName: string; email: string; type?: "PERSON" | "COMPANY" };
 
 /** Formatea entrada como RUT chileno: 12.345.678-9. Máximo 8 dígitos + 1 dígito verificador. */
 function formatChileanRut(value: string): string {
@@ -99,7 +101,8 @@ export function AdminReservationsView({
     const [newCheckOut, setNewCheckOut] = useState("");
     const [newTotalAmount, setNewTotalAmount] = useState(0);
     const [newDownPayment, setNewDownPayment] = useState(0);
-    const [newDownPaymentMethod, setNewDownPaymentMethod] = useState<"CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER">("CASH");
+    const [newDownPaymentMethod, setNewDownPaymentMethod] = useState<"CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER" | "PURCHASE_ORDER">("CASH");
+    const [newPaymentTermDays, setNewPaymentTermDays] = useState<number>(0);
     const [newNotes, setNewNotes] = useState("");
     const [reservationState, setReservationState] = useState<CreateReservationsBulkState>(initialReservationState);
     const [bulkSaving, setBulkSaving] = useState(false);
@@ -110,6 +113,8 @@ export function AdminReservationsView({
     const [showEmergencyContact, setShowEmergencyContact] = useState(false);
     const [emergencyContactName, setEmergencyContactName] = useState("");
     const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
+    const [newGuestType, setNewGuestType] = useState<"PERSON" | "COMPANY">("PERSON");
+    const [newGuestCompanyRut, setNewGuestCompanyRut] = useState("");
     const [guestState, guestFormAction] = useActionState(createGuest, initialGuestState);
 
     useEffect(() => {
@@ -126,6 +131,7 @@ export function AdminReservationsView({
         setNewGuestOpen(false);
         setNewGuestRut("");
         setNewGuestPhone("+569");
+        setNewGuestCompanyRut("");
         setShowEmergencyContact(false);
         setEmergencyContactName("");
         setEmergencyContactPhone("");
@@ -141,6 +147,15 @@ export function AdminReservationsView({
         setEmergencyContactPhone("");
       }
     }, [newGuestOpen]);
+
+    // Si cambia a huésped persona y tenía Orden de compra, volver a método normal
+    useEffect(() => {
+      const selected = localGuests.find((g) => g.id === newGuestId);
+      if (selected?.type !== "COMPANY" && newDownPaymentMethod === "PURCHASE_ORDER") {
+        setNewDownPaymentMethod("CASH");
+        setNewPaymentTermDays(0);
+      }
+    }, [newGuestId, localGuests, newDownPaymentMethod]);
 
     // Habitaciones disponibles: si hay fechas, las que no tienen reserva en ese rango; si no hay fechas, las que no están ocupadas hoy
     const todayStr = format(startOfDay(new Date()), "yyyy-MM-dd");
@@ -371,6 +386,7 @@ export function AdminReservationsView({
                           rooms: validLines,
                           downPayment: newDownPayment,
                           downPaymentMethod: newDownPaymentMethod,
+                          paymentTermDays: newDownPaymentMethod === "PURCHASE_ORDER" && newPaymentTermDays >= 1 ? newPaymentTermDays : undefined,
                           notes: newNotes || undefined,
                         });
                         setBulkSaving(false);
@@ -398,7 +414,7 @@ export function AdminReservationsView({
                               onChange={setNewGuestId}
                               options={localGuests.map((g) => ({
                                 value: g.id,
-                                label: g.fullName + (g.email ? ` (${g.email})` : ""),
+                                label: `${g.fullName}${g.email ? ` (${g.email})` : ""} — ${g.type === "COMPANY" ? "Empresa" : "Persona"}`,
                               }))}
                               placeholder="Seleccionar huésped"
                               aria-label="Seleccionar huésped"
@@ -427,10 +443,10 @@ export function AdminReservationsView({
                         {roomLines.map((line, index) => (
                           <div
                             key={index}
-                            className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-3"
+                            className="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-3 sm:gap-4"
                           >
-                            <div className="min-w-[140px] flex-1">
-                              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Habitación</span>
+                            <div className="min-w-0 flex-1 basis-48">
+                              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Habitación</label>
                               <CustomSelect
                                 value={line.roomId}
                                 onChange={(v) =>
@@ -446,8 +462,8 @@ export function AdminReservationsView({
                                 aria-label={`Habitación ${index + 1}`}
                               />
                             </div>
-                            <div className="w-28">
-                              <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Huéspedes</span>
+                            <div className="min-w-[7.5rem] shrink-0 sm:min-w-[8.5rem]">
+                              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Huéspedes</label>
                               <CustomSelect
                                 value={String(line.numGuests)}
                                 onChange={(v) =>
@@ -463,6 +479,7 @@ export function AdminReservationsView({
                                 }))}
                                 placeholder="—"
                                 aria-label={`Nº huéspedes habitación ${index + 1}`}
+                                className="min-w-full"
                               />
                             </div>
                             <button
@@ -534,28 +551,63 @@ export function AdminReservationsView({
                           name="downPayment"
                           inputMode="numeric"
                           value={newDownPayment ? newDownPayment.toLocaleString("es-CL") : ""}
-                          onChange={(e) => setNewDownPayment(Math.max(0, parseInt(e.target.value.replace(/\D/g, ""), 10) || 0))}
-                          placeholder="Monto que abona el cliente ahora"
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                          onChange={(e) => {
+                            if (newDownPaymentMethod === "PURCHASE_ORDER") return;
+                            setNewDownPayment(Math.max(0, parseInt(e.target.value.replace(/\D/g, ""), 10) || 0));
+                          }}
+                          placeholder={newDownPaymentMethod === "PURCHASE_ORDER" ? "No aplica (orden de compra)" : "Monto que abona el cliente ahora"}
+                          disabled={newDownPaymentMethod === "PURCHASE_ORDER"}
+                          className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${newDownPaymentMethod === "PURCHASE_ORDER" ? "cursor-not-allowed bg-[var(--muted)]/20 border-[var(--border)]" : newTotalAmount > 0 && newDownPayment > newTotalAmount ? "border-[var(--destructive)] bg-[var(--destructive)]/5 focus:ring-[var(--destructive)]" : "border-[var(--border)] bg-[var(--background)] focus:ring-[var(--primary)]"}`}
                         />
+                        {newTotalAmount > 0 && (
+                          <p className="mt-0.5 text-xs text-[var(--muted)]">Máximo: ${newTotalAmount.toLocaleString("es-CL")}</p>
+                        )}
+                        {newTotalAmount > 0 && newDownPayment > newTotalAmount && (
+                          <p className="mt-1.5 text-sm font-medium text-[var(--destructive)]" role="alert">
+                            El abonado excede el total. Corrija el monto para poder crear la reserva.
+                          </p>
+                        )}
                         <div className="mt-2">
                           <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Método de pago</label>
                           <CustomSelect
                             value={newDownPaymentMethod}
-                            onChange={(v) => setNewDownPaymentMethod(v as "CASH" | "DEBIT" | "CREDIT" | "TRANSFER" | "OTHER")}
+                            onChange={(v) => {
+                              const method = v as typeof newDownPaymentMethod;
+                              setNewDownPaymentMethod(method);
+                              if (method === "PURCHASE_ORDER") setNewDownPayment(0);
+                              else setNewPaymentTermDays(0);
+                            }}
                             options={[
                               { value: "CASH", label: "Efectivo" },
                               { value: "TRANSFER", label: "Transferencia" },
                               { value: "DEBIT", label: "Débito" },
                               { value: "CREDIT", label: "Crédito" },
+                              ...(localGuests.find((g) => g.id === newGuestId)?.type === "COMPANY"
+                                ? [{ value: "PURCHASE_ORDER", label: "Orden de compra" }]
+                                : []),
                               { value: "OTHER", label: "Otro" },
                             ]}
                             placeholder="Seleccionar método"
                             aria-label="Método de pago"
                           />
-                          <input type="hidden" name="downPaymentMethod" value={newDownPaymentMethod} />
+                          <input type="hidden" name="downPaymentMethod" value={newDownPaymentMethod === "PURCHASE_ORDER" ? "OTHER" : newDownPaymentMethod} />
                         </div>
-                        {newTotalAmount > 0 && (
+                        {newDownPaymentMethod === "PURCHASE_ORDER" && (
+                          <div className="mt-3 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 p-3">
+                            <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Días hábiles para pagar</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={365}
+                              value={newPaymentTermDays || ""}
+                              onChange={(e) => setNewPaymentTermDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                              placeholder="Ej. 30"
+                              className="w-full max-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                            />
+                            <p className="mt-1 text-xs text-[var(--muted)]">Plazo en días hábiles después del check-out. Aparecerá en Pagos pendientes (Empresas).</p>
+                          </div>
+                        )}
+                        {newTotalAmount > 0 && newDownPaymentMethod !== "PURCHASE_ORDER" && (
                           <p className="mt-1.5 text-xs text-[var(--muted)]">
                             Saldo pendiente: <span className="font-medium text-[var(--foreground)]">
                               ${Math.max(0, newTotalAmount - newDownPayment).toLocaleString("es-CL")}
@@ -585,7 +637,11 @@ export function AdminReservationsView({
                           Cancelar
                         </button>
                         <CrearReservaSubmitButton
-                          disabled={roomLines.every((l) => !l.roomId)}
+                          disabled={
+                            roomLines.every((l) => !l.roomId) ||
+                            (newTotalAmount > 0 && newDownPayment > newTotalAmount) ||
+                            (newDownPaymentMethod === "PURCHASE_ORDER" && (!newPaymentTermDays || newPaymentTermDays < 1))
+                          }
                           loading={bulkSaving}
                         />
                       </div>
@@ -605,7 +661,7 @@ export function AdminReservationsView({
                   style={{ minHeight: "100dvh" }}
                 >
                   <div
-                    className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
                   >
                     <div className="mb-4 flex items-center justify-between">
                       <div>
@@ -624,21 +680,84 @@ export function AdminReservationsView({
                       </button>
                     </div>
                     <form action={guestFormAction} className="space-y-4">
+                      <input type="hidden" name="guestType" value={newGuestType} />
                       {guestState?.error && (
                         <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
                           {guestState.error}
                         </p>
                       )}
                       <div>
-                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nombre completo *</label>
+                        <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">Categoría *</span>
+                        <div className="flex gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
+                          <button
+                            type="button"
+                            onClick={() => setNewGuestType("PERSON")}
+                            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${newGuestType === "PERSON" ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                          >
+                            Persona
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewGuestType("COMPANY")}
+                            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${newGuestType === "COMPANY" ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                          >
+                            Empresa
+                          </button>
+                        </div>
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          En Pagos pendientes aparecerán en la sección correspondiente.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">
+                          {newGuestType === "COMPANY" ? "Nombre del contacto *" : "Nombre completo *"}
+                        </label>
                         <input
                           type="text"
                           name="fullName"
                           required
-                          placeholder="Ej. Juan Pérez"
+                          placeholder={newGuestType === "COMPANY" ? "Ej. Juan Pérez (representante)" : "Ej. Juan Pérez"}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                         />
                       </div>
+                      {newGuestType === "COMPANY" && (
+                        <>
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Razón social *</label>
+                            <input
+                              type="text"
+                              name="companyName"
+                              required={newGuestType === "COMPANY"}
+                              placeholder="Ej. Hotelera Norte SpA"
+                              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-[var(--muted)]">RUT empresa (opcional)</label>
+                            <input
+                              type="text"
+                              name="companyRut"
+                              inputMode="numeric"
+                              autoComplete="off"
+                              value={newGuestCompanyRut}
+                              onChange={(e) => setNewGuestCompanyRut(formatChileanRut(e.target.value))}
+                              placeholder="76.123.456-7"
+                              maxLength={12}
+                              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                            />
+                            <p className="mt-0.5 text-xs text-[var(--muted)]">Máx. 8 dígitos + dígito verificador (0-9 o K)</p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Email empresa (opcional)</label>
+                            <input
+                              type="email"
+                              name="companyEmail"
+                              placeholder="facturacion@empresa.cl"
+                              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                            />
+                          </div>
+                        </>
+                      )}
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">RUT *</label>
                         <input
@@ -882,71 +1001,61 @@ export function AdminReservationsView({
                 {filteredReservations.map((reservation) => (
                     <div
                         key={reservation.id}
-                        className="relative rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 pr-16 shadow-sm transition-all hover:shadow-md"
+                        className="relative rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm transition-all hover:shadow-md sm:p-5 sm:pr-14"
                     >
                         <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setReservationToDelete(reservation); }}
-                            className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] shrink-0"
+                            className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] shrink-0 sm:top-4 sm:right-4"
                             aria-label="Eliminar reserva"
                         >
                             <X className="h-5 w-5" />
                         </button>
-                        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                            <div className="flex gap-4">
-                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10 shadow-sm">
-                                    <Calendar className="h-6 w-6 text-[var(--primary)]" />
+                        <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[700px]:items-center">
+                            {/* Bloque: icono + datos */}
+                            <div className="flex min-w-0 gap-3">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
+                                    <Calendar className="h-5 w-5 text-[var(--primary)]" />
                                 </div>
-                                <div className="flex-1 space-y-3">
-                                    {/* Encabezado: Nombre y Estado */}
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <h3 className="font-semibold text-[var(--foreground)]">{reservation.guest_name}</h3>
+                                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${reservation.guest_type === "COMPANY" ? "bg-[var(--secondary)]/20 text-[var(--secondary)]" : "bg-[var(--muted)]/20 text-[var(--muted)]"}`}>
+                                            {reservation.guest_type === "COMPANY" ? "Empresa" : "Persona"}
+                                        </span>
                                         <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[reservation.status]}`}>
                                             {statusLabels[reservation.status]}
                                         </span>
                                     </div>
-
-                                    {/* Detalles en Grid */}
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-[var(--muted)] sm:flex sm:flex-wrap sm:gap-4 pointer-events-none">
-                                        <div className="col-span-2 flex items-center gap-2 sm:col-span-auto">
-                                            <Calendar className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                                            <span>
-                                                {formatDate(reservation.check_in)} - {formatDate(reservation.check_out)}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-medium text-[var(--foreground)]/80">
-                                                Hab. {reservation.room_number}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Users className="h-4 w-4 shrink-0 text-[var(--muted)]/70" />
-                                            <span>
-                                                {reservation.guests} {reservation.guests === 1 ? 'huésped' : 'huéspedes'}
-                                            </span>
-                                        </div>
-                                        <div className="col-span-2 sm:col-span-auto">
-                                            <span>{reservation.nights} {reservation.nights === 1 ? 'noche' : 'noches'}</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Contacto */}
-                                    <div className="flex flex-col gap-1 text-xs text-[var(--muted)] sm:flex-row sm:gap-3">
-                                        <span className="truncate">{reservation.guest_email}</span>
-                                        <span className="hidden sm:inline">·</span>
-                                        <span>{reservation.guest_phone}</span>
-                                    </div>
+                                    <p className="mt-1.5 text-sm text-[var(--muted)]">
+                                        {formatDate(reservation.check_in)} – {formatDate(reservation.check_out)}
+                                        <span className="mx-1.5">·</span>
+                                        Hab. {reservation.room_number}
+                                        <span className="mx-1.5">·</span>
+                                        {reservation.guests} {reservation.guests === 1 ? "huésped" : "huéspedes"}
+                                        <span className="mx-1.5">·</span>
+                                        {reservation.nights} {reservation.nights === 1 ? "noche" : "noches"}
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-[var(--muted)] truncate">
+                                        {reservation.guest_email}
+                                        {reservation.guest_phone ? ` · ${reservation.guest_phone}` : ""}
+                                    </p>
+                                    {reservation.payment_term_days != null && reservation.payment_term_days > 0 && (
+                                        <p className="mt-1 text-xs font-medium text-[var(--primary)]">
+                                            Orden de compra · {reservation.payment_term_days} días hábiles
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Footer: Precio y Acciones */}
-                            <div className="mt-2 flex flex-col gap-3 border-t border-[var(--border)] pt-4 md:mt-0 md:w-auto md:border-0 md:pt-0 md:text-right">
-                                <div className="flex items-center justify-between md:block">
-                                    <span className="text-sm font-medium text-[var(--muted)] md:hidden">Total</span>
-                                    <p className="text-lg font-bold text-[var(--foreground)]">{formatCLP(reservation.total_price)}</p>
-                                </div>
+                            {/* Precio */}
+                            <div className="flex items-center justify-between min-[700px]:justify-self-end min-[700px]:block">
+                                <span className="text-sm text-[var(--muted)] min-[700px]:hidden">Total</span>
+                                <p className="text-lg font-bold text-[var(--foreground)]">{formatCLP(reservation.total_price)}</p>
+                            </div>
 
-                                <div className="grid grid-cols-2 gap-3 md:flex md:justify-end md:gap-3">
+                            {/* Acciones */}
+                            <div className="grid grid-cols-2 gap-2 min-[700px]:flex min-[700px]:flex-wrap min-[700px]:justify-end min-[700px]:gap-2">
                                     {reservation.status === "pending" && (
                                         <button
                                             type="button"
@@ -984,7 +1093,6 @@ export function AdminReservationsView({
                                     </button>
                                 </div>
                             </div>
-                        </div>
                     </div>
                 ))}
             </div>

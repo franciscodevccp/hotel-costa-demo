@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { PaymentStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncMotopressBookings } from "@/lib/motopress-sync";
@@ -64,6 +65,19 @@ export async function createReservation(
   if (!userId) return { error: "No autorizado" };
 
   try {
+    const guest = await prisma.guest.findUnique({
+      where: { id: guestId, establishmentId: session.user.establishmentId },
+      select: { type: true, companyName: true, companyRut: true, companyEmail: true },
+    });
+    const companyData =
+      guest?.type === "COMPANY" && guest.companyName
+        ? {
+            companyName: guest.companyName,
+            companyRut: guest.companyRut ?? null,
+            companyEmail: guest.companyEmail ?? null,
+          }
+        : {};
+
     const reservation = await prisma.reservation.create({
       data: {
         establishmentId: session.user.establishmentId,
@@ -76,6 +90,7 @@ export async function createReservation(
         notes,
         status: "PENDING",
         source: "MANUAL",
+        ...companyData,
       },
     });
 
@@ -87,7 +102,7 @@ export async function createReservation(
           registeredById: userId,
           amount: downPayment,
           method: downPaymentMethod,
-          status: downPayment >= totalAmount ? "COMPLETED" : "PARTIAL",
+          status: downPayment >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL,
           notes: "Abono al crear reserva",
         },
       });
@@ -146,6 +161,7 @@ export async function createReservationsBulk(payload: {
   rooms: Array<{ roomId: string; numGuests: number }>;
   downPayment: number;
   downPaymentMethod: string;
+  paymentTermDays?: number | null;
   notes?: string | null;
 }): Promise<CreateReservationsBulkState> {
   const session = await auth();
@@ -153,7 +169,11 @@ export async function createReservationsBulk(payload: {
     return { error: "No autorizado" };
   }
 
-  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, notes } = payload;
+  const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes } = payload;
+  const isPurchaseOrder = downPaymentMethod === "PURCHASE_ORDER";
+  if (isPurchaseOrder && (!paymentTermDays || paymentTermDays < 1)) {
+    return { error: "Indique los días hábiles para pagar (orden de compra)" };
+  }
 
   if (!guestId) return { error: "Seleccione un huésped" };
   if (!roomLines?.length) return { error: "Agregue al menos una habitación" };
@@ -177,7 +197,7 @@ export async function createReservationsBulk(payload: {
   const VALID_PAYMENT_METHODS = ["CASH", "DEBIT", "CREDIT", "TRANSFER", "OTHER"] as const;
   const method = VALID_PAYMENT_METHODS.includes(payload.downPaymentMethod as (typeof VALID_PAYMENT_METHODS)[number])
     ? (payload.downPaymentMethod as (typeof VALID_PAYMENT_METHODS)[number])
-    : "CASH";
+    : "OTHER";
 
   const userId = session.user?.id;
   if (!userId) return { error: "No autorizado" };
@@ -195,9 +215,20 @@ export async function createReservationsBulk(payload: {
 
     const guest = await prisma.guest.findUnique({
       where: { id: guestId, establishmentId },
-      select: { fullName: true, email: true, phone: true },
+      select: { fullName: true, email: true, phone: true, type: true, companyName: true, companyRut: true, companyEmail: true },
     });
     if (!guest) return { error: "Huésped no encontrado" };
+
+    const companyData =
+      guest.type === "COMPANY" && guest.companyName
+        ? {
+            companyName: guest.companyName,
+            companyRut: guest.companyRut ?? null,
+            companyEmail: guest.companyEmail ?? null,
+          }
+        : {};
+    const paymentTermData =
+      isPurchaseOrder && paymentTermDays != null && paymentTermDays >= 1 ? { paymentTermDays } : {};
 
     let downPaymentRemaining = Math.max(0, downPayment);
     let created = 0;
@@ -219,6 +250,8 @@ export async function createReservationsBulk(payload: {
           notes: notes?.trim() || null,
           status: "PENDING",
           source: "MANUAL",
+          ...companyData,
+          ...paymentTermData,
         },
       });
       created += 1;
@@ -231,8 +264,8 @@ export async function createReservationsBulk(payload: {
             reservationId: reservation.id,
             registeredById: userId,
             amount: amountForThis,
-            method,
-            status: amountForThis >= totalAmount ? "COMPLETED" : "PARTIAL",
+            method: isPurchaseOrder ? "OTHER" : method,
+            status: amountForThis >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL,
             notes: "Abono al crear reserva",
           },
         });

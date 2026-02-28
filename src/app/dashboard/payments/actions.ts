@@ -1,13 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { PaymentMethod, PaymentStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 const VALID_STATUSES = ["PENDING", "PARTIAL", "COMPLETED", "REFUNDED"] as const;
+const VALID_METHODS = ["CASH", "DEBIT", "CREDIT", "TRANSFER", "OTHER"] as const;
 export type PaymentStatusValue = (typeof VALID_STATUSES)[number];
+export type PaymentMethodValue = (typeof VALID_METHODS)[number];
 
 export type UpdatePaymentStatusState = { error?: string; success?: boolean };
+export type UpdatePaymentState = { error?: string; success?: boolean };
+
+export type UpdatePaymentInput = {
+  amount: number;
+  method: PaymentMethodValue;
+  status?: PaymentStatusValue;
+};
 
 /** Solo el administrador puede actualizar el estado de un pago (Pendiente, Pago de abono, Pago total). */
 export async function updatePaymentStatus(
@@ -38,9 +48,153 @@ export async function updatePaymentStatus(
     }
     revalidatePath("/dashboard/payments");
     revalidatePath("/dashboard/pending-payments");
+    revalidatePath("/dashboard/reservations");
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al actualizar el estado";
+    return { error: message };
+  }
+}
+
+/** Admin y recepcionista pueden editar monto y estado del pago. */
+export async function updatePayment(
+  paymentId: string,
+  input: UpdatePaymentInput
+): Promise<UpdatePaymentState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  if (typeof input.amount !== "number" || input.amount < 0) {
+    return { error: "Monto inválido" };
+  }
+  if (!VALID_METHODS.includes(input.method)) {
+    return { error: "Método de pago no válido" };
+  }
+  if (input.status != null && !VALID_STATUSES.includes(input.status)) {
+    return { error: "Estado no válido" };
+  }
+
+  try {
+    const data: { amount: number; method: PaymentMethodValue; status?: PaymentStatusValue } = {
+      amount: Math.round(input.amount),
+      method: input.method,
+    };
+    if (input.status != null) data.status = input.status;
+
+    const updated = await prisma.payment.updateMany({
+      where: {
+        id: paymentId,
+        establishmentId: session.user.establishmentId,
+      },
+      data,
+    });
+    if (updated.count === 0) {
+      return { error: "Pago no encontrado" };
+    }
+    revalidatePath("/dashboard/payments");
+    revalidatePath("/dashboard/pending-payments");
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al actualizar el pago";
+    return { error: message };
+  }
+}
+
+export type CompletePaymentWithRestState = { error?: string; success?: boolean };
+
+/**
+ * Sumar un monto al mismo registro de pago (no crear otro).
+ * - Si total pagado < total reserva: queda "Pago de abono" (PARTIAL) y pendiente = total reserva - total pagado.
+ * - Si total pagado >= total reserva: queda "Pago total" (COMPLETED).
+ * Si paga con otro método, se añade a additionalMethods (todos los métodos usados).
+ */
+export async function completePaymentWithRest(
+  paymentId: string,
+  additionalAmount: number,
+  method: PaymentMethodValue
+): Promise<CompletePaymentWithRestState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  if (typeof additionalAmount !== "number" || additionalAmount <= 0) {
+    return { error: "Monto inválido" };
+  }
+  if (!VALID_METHODS.includes(method)) {
+    return { error: "Método de pago no válido" };
+  }
+
+  try {
+    const payment = await prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        establishmentId: session.user.establishmentId,
+      },
+      include: { reservation: { select: { totalAmount: true } } },
+    });
+    if (!payment) {
+      return { error: "Pago no encontrado" };
+    }
+
+    const totalAmount = payment.reservation.totalAmount;
+    const newAmount = payment.amount + Math.round(additionalAmount);
+    if (newAmount > totalAmount) {
+      return { error: `El monto no puede superar el total de la reserva (${totalAmount} CLP)` };
+    }
+    // Si aún falta por pagar → Pago de abono (PARTIAL); si ya cubre todo → Pago total (COMPLETED)
+    const newStatus = newAmount >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+
+    const currentMethods = payment.additionalMethods ?? [];
+    const isSameAsInitial = payment.method === method;
+    const alreadyInList = currentMethods.includes(method);
+    const newMethods: PaymentMethod[] =
+      isSameAsInitial || alreadyInList ? [...currentMethods] : [...currentMethods, method];
+
+    await prisma.payment.update({
+      where: { id: paymentId },
+      data: {
+        amount: newAmount,
+        status: newStatus,
+        additionalMethods: newMethods,
+      },
+    });
+    revalidatePath("/dashboard/payments");
+    revalidatePath("/dashboard/pending-payments");
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al registrar el pago";
+    return { error: message };
+  }
+}
+
+export type DeletePaymentState = { error?: string; success?: boolean };
+
+/** Eliminar un registro de pago. Admin y recepcionista. */
+export async function deletePayment(paymentId: string): Promise<DeletePaymentState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  try {
+    const deleted = await prisma.payment.deleteMany({
+      where: {
+        id: paymentId,
+        establishmentId: session.user.establishmentId,
+      },
+    });
+    if (deleted.count === 0) {
+      return { error: "Pago no encontrado" };
+    }
+    revalidatePath("/dashboard/payments");
+    revalidatePath("/dashboard/pending-payments");
+    revalidatePath("/dashboard/reservations");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Error al eliminar el pago";
     return { error: message };
   }
 }
