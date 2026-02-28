@@ -222,15 +222,19 @@ enum PaymentStatus {
 
 // ─── InventoryProduct ─────────────────────────────────────────────────────
 model InventoryProduct {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   establishmentId String
   name            String
-  category        String   // "Aseo", "Ropa de cama", "Desayuno", etc.
-  stock           Int      @default(0)
-  minStock        Int      @default(5)
-  unit            String   // "unidad", "kg", "rollo", "litro"
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  category        String    // "Aseo", "Ropa de cama", "Desayuno", etc.
+  stock           Int       @default(0)
+  minStock        Int       @default(5)
+  unit            String    // "unidad", "kg", "rollo", "litro"
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  /// Fecha manual de última entrada (ej. según factura). Si es null, se usa la del último movimiento.
+  lastEntryAt     DateTime?
+  /// Fecha manual de última salida. Si es null, se usa la del último movimiento.
+  lastExitAt      DateTime?
 
   establishment Establishment       @relation(fields: [establishmentId], references: [id])
   movements     InventoryMovement[]

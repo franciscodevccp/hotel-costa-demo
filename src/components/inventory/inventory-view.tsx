@@ -18,12 +18,16 @@ import {
 import {
   deleteProduct as deleteProductAction,
   registerMovement as registerMovementAction,
+  updateProductLastDates as updateProductLastDatesAction,
 } from "@/app/dashboard/inventory/actions";
 import {
   getInvoiceByFolio,
   type InvoiceByFolio,
 } from "@/app/dashboard/invoices/actions";
 import { CustomSelect } from "@/components/ui/custom-select";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { createPortal } from "react-dom";
+import { format } from "date-fns";
 
 export interface InventoryProduct {
   id: string;
@@ -67,8 +71,8 @@ function toInventoryProduct(p: ProductRow): InventoryProduct {
   };
 }
 
-/** Formato fecha y hora para última actualización (ej: 28 feb 2026, 14:30) */
-function formatLastUpdate(date: Date | string | null | undefined): string {
+/** Formato solo fecha para Últ. entrada / Últ. salida (ej: 28 feb 2026), sin hora */
+function formatLastEntryExitDate(date: Date | string | null | undefined): string {
   if (date == null) return "—";
   const d = typeof date === "string" ? new Date(date) : date;
   if (Number.isNaN(d.getTime())) return "—";
@@ -76,9 +80,15 @@ function formatLastUpdate(date: Date | string | null | undefined): string {
     day: "numeric",
     month: "short",
     year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
+}
+
+/** Fecha a yyyy-MM-dd para el date picker */
+function toDateInputValue(date: Date | string | null | undefined): string {
+  if (date == null) return "";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "";
+  return format(d, "yyyy-MM-dd");
 }
 
 export function InventoryView({ products: initialProducts }: { products: ProductRow[] }) {
@@ -115,6 +125,15 @@ export function InventoryView({ products: initialProducts }: { products: Product
   // Formulario movimiento
   const [movementQty, setMovementQty] = useState(0);
   const [movementFolio, setMovementFolio] = useState("");
+
+  // Editar manualmente última entrada / última salida
+  const [editLastDate, setEditLastDate] = useState<{
+    product: InventoryProduct;
+    field: "lastEntryAt" | "lastExitAt";
+  } | null>(null);
+  const [editLastDateValue, setEditLastDateValue] = useState("");
+  const [editLastDateSaving, setEditLastDateSaving] = useState(false);
+  const [editLastDateError, setEditLastDateError] = useState<string | null>(null);
 
   const lowStockProducts = products.filter((p) => p.stock < p.minStock);
   const hasLowStock = lowStockProducts.length > 0;
@@ -491,11 +510,33 @@ export function InventoryView({ products: initialProducts }: { products: Product
                   </td>
                   <td className="px-4 py-3 text-center text-[var(--success)]">{product.entradas}</td>
                   <td className="px-4 py-3 text-center text-[var(--destructive)]">{product.salidas}</td>
-                  <td className="px-4 py-3 text-center text-xs text-[var(--muted)]" title="Última actualización entrada">
-                    {formatLastUpdate(product.lastEntryAt)}
+                  <td className="px-4 py-3 text-center text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditLastDate({ product, field: "lastEntryAt" });
+                        setEditLastDateValue(toDateInputValue(product.lastEntryAt));
+                        setEditLastDateError(null);
+                      }}
+                      className="text-[var(--muted)] hover:text-[var(--primary)] hover:underline rounded px-1.5 py-0.5 -m-1"
+                      title="Clic para editar fecha de última entrada (ej. según factura)"
+                    >
+                      {formatLastEntryExitDate(product.lastEntryAt)}
+                    </button>
                   </td>
-                  <td className="px-4 py-3 text-center text-xs text-[var(--muted)]" title="Última actualización salida">
-                    {formatLastUpdate(product.lastExitAt)}
+                  <td className="px-4 py-3 text-center text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditLastDate({ product, field: "lastExitAt" });
+                        setEditLastDateValue(toDateInputValue(product.lastExitAt));
+                        setEditLastDateError(null);
+                      }}
+                      className="text-[var(--muted)] hover:text-[var(--primary)] hover:underline rounded px-1.5 py-0.5 -m-1"
+                      title="Clic para editar fecha de última salida"
+                    >
+                      {formatLastEntryExitDate(product.lastExitAt)}
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-center">
                     <div className="flex justify-center gap-2">
@@ -742,6 +783,101 @@ export function InventoryView({ products: initialProducts }: { products: Product
           </div>
         </div>
       )}
+
+      {/* Modal editar fecha última entrada / última salida */}
+      {editLastDate &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                {editLastDate.field === "lastEntryAt" ? "Últ. entrada" : "Últ. salida"}
+              </h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {editLastDate.product.name}
+              </p>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Indique la fecha según sus registros o facturas. Puede dejarla en blanco para usar la del último movimiento.
+              </p>
+              <div className="mt-4">
+                <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Fecha
+                </label>
+                <DatePickerInput
+                  value={editLastDateValue}
+                  onChange={setEditLastDateValue}
+                  placeholder="dd/mm/aaaa"
+                  aria-label="Fecha"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                />
+              </div>
+              {editLastDateError && (
+                <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
+                  {editLastDateError}
+                </p>
+              )}
+              <div className="mt-6 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => !editLastDateSaving && setEditLastDate(null)}
+                  disabled={editLastDateSaving}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const productId = editLastDate.product.id;
+                    const field = editLastDate.field;
+                    setEditLastDateError(null);
+                    setEditLastDateSaving(true);
+                    const res = await updateProductLastDatesAction(productId, {
+                      ...(field === "lastEntryAt" ? { lastEntryAt: null } : { lastExitAt: null }),
+                    });
+                    setEditLastDateSaving(false);
+                    if (res?.error) {
+                      setEditLastDateError(res.error);
+                      return;
+                    }
+                    setEditLastDate(null);
+                    router.refresh();
+                  }}
+                  disabled={editLastDateSaving}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20 disabled:opacity-50"
+                >
+                  Limpiar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setEditLastDateError(null);
+                    setEditLastDateSaving(true);
+                    const res = await updateProductLastDatesAction(editLastDate.product.id, {
+                      [editLastDate.field]: editLastDateValue.trim() || null,
+                    });
+                    setEditLastDateSaving(false);
+                    if (res?.error) {
+                      setEditLastDateError(res.error);
+                      return;
+                    }
+                    setEditLastDate(null);
+                    router.refresh();
+                  }}
+                  disabled={editLastDateSaving}
+                  className="flex-1 min-w-[100px] rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {editLastDateSaving ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Modal confirmar eliminar producto */}
       {productToDelete && (

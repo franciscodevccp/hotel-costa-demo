@@ -12,6 +12,8 @@ export async function getProducts(establishmentId: string) {
       unit: true,
       stock: true,
       minStock: true,
+      lastEntryAt: true,
+      lastExitAt: true,
       movements: {
         select: { type: true, quantity: true, folio: true, createdAt: true },
         orderBy: { createdAt: "desc" as const },
@@ -35,8 +37,8 @@ export async function getProducts(establishmentId: string) {
       entradas,
       salidas,
       folio: lastWithFolio?.folio ?? null,
-      lastEntryAt: lastEntry?.createdAt ?? null,
-      lastExitAt: lastExit?.createdAt ?? null,
+      lastEntryAt: product.lastEntryAt ?? lastEntry?.createdAt ?? null,
+      lastExitAt: product.lastExitAt ?? lastExit?.createdAt ?? null,
     };
   });
 }

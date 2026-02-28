@@ -80,3 +80,39 @@ export async function registerMovement(
   revalidatePath("/dashboard/inventory");
   return {};
 }
+
+export type UpdateLastDatesState = { error?: string };
+
+/** Actualiza manualmente la fecha de última entrada y/o última salida del producto (ej. según facturas). */
+export async function updateProductLastDates(
+  productId: string,
+  data: { lastEntryAt?: string | null; lastExitAt?: string | null }
+): Promise<UpdateLastDatesState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  const product = await prisma.inventoryProduct.findFirst({
+    where: { id: productId, establishmentId: session.user.establishmentId },
+    select: { id: true },
+  });
+  if (!product) return { error: "Producto no encontrado" };
+
+  const toDate = (s: string | null | undefined): Date | null => {
+    if (s == null || s === "") return null;
+    const d = new Date(s + "T12:00:00");
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  await prisma.inventoryProduct.update({
+    where: { id: product.id },
+    data: {
+      ...(data.lastEntryAt !== undefined && { lastEntryAt: toDate(data.lastEntryAt) }),
+      ...(data.lastExitAt !== undefined && { lastExitAt: toDate(data.lastExitAt) }),
+    },
+  });
+
+  revalidatePath("/dashboard/inventory");
+  return {};
+}
