@@ -3,10 +3,15 @@
  * 1 Establishment, 2 Users, 22 Rooms, 7 Suppliers, ~100 productos de inventario
  * Ejecutar: pnpm prisma db seed
  */
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { hash } from "bcryptjs";
 
-const prisma = new PrismaClient();
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is not set");
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 const BCRYPT_ROUNDS = 12;
 const DEFAULT_PASSWORD = "HotelCosta2026"; // Cambiar en producción

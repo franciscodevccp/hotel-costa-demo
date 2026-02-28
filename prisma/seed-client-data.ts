@@ -5,12 +5,17 @@
  *
  * Ejecutar: npx tsx prisma/seed-client-data.ts
  */
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { readFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import sharp from "sharp";
 
-const prisma = new PrismaClient();
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is not set");
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 const ESTABLISHMENT_ID = "est-hotel-costa";
 const DATA_DIR = path.join(process.cwd(), "public", "inventario-facturas-todo");
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "invoices");
