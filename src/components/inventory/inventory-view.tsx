@@ -39,7 +39,7 @@ export interface InventoryProduct {
   lastExitAt?: Date | string | null;
 }
 
-type SortColumn = "product" | "category" | "stock" | "folio" | "entradas" | "salidas";
+type SortColumn = "product" | "category" | "stock" | "folio" | "entradas" | "salidas" | "lastEntryAt" | "lastExitAt";
 
 /** Normaliza texto para búsqueda: minúsculas y sin tildes (azúcar → azucar) */
 function normalizeForSearch(s: string): string {
@@ -142,8 +142,12 @@ export function InventoryView({ products: initialProducts }: { products: Product
     );
   }
 
-  // Ordenar: producto y categoría A-Z (asc); stock, folio, entradas, salidas mayor a menor (desc)
-  const defaultDesc = ["stock", "folio", "entradas", "salidas"].includes(sortBy);
+  /** Para ordenar por fecha: null/undefined = 0 (quedan al final con desc = más reciente primero) */
+  const dateToNum = (d: Date | string | null | undefined): number =>
+    d == null ? 0 : (typeof d === "string" ? new Date(d).getTime() : d.getTime());
+
+  // Ordenar: producto y categoría A-Z (asc); stock, folio, entradas, salidas, últ. entrada/salida por defecto desc
+  const defaultDesc = ["stock", "folio", "entradas", "salidas", "lastEntryAt", "lastExitAt"].includes(sortBy);
   const order = sortOrder === "asc" ? 1 : -1;
   filtered = [...filtered].sort((a, b) => {
     if (sortBy === "product") {
@@ -160,11 +164,13 @@ export function InventoryView({ products: initialProducts }: { products: Product
       const fb = b.folio ?? "";
       return order * fa.localeCompare(fb, "es");
     }
+    if (sortBy === "lastEntryAt") return order * (dateToNum(a.lastEntryAt) - dateToNum(b.lastEntryAt));
+    if (sortBy === "lastExitAt") return order * (dateToNum(a.lastExitAt) - dateToNum(b.lastExitAt));
     return 0;
   });
 
   const handleSort = (column: SortColumn) => {
-    const defaultDesc = ["stock", "folio", "entradas", "salidas"].includes(column);
+    const defaultDesc = ["stock", "folio", "entradas", "salidas", "lastEntryAt", "lastExitAt"].includes(column);
     if (sortBy === column) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
@@ -369,11 +375,23 @@ export function InventoryView({ products: initialProducts }: { products: Product
                     hintAsc: "Menor",
                     hintDesc: "Mayor",
                   },
+                  {
+                    id: "lastEntryAt" as const,
+                    label: "Últ. entrada",
+                    hintAsc: "Más antiguo",
+                    hintDesc: "Más reciente",
+                  },
+                  {
+                    id: "lastExitAt" as const,
+                    label: "Últ. salida",
+                    hintAsc: "Más antiguo",
+                    hintDesc: "Más reciente",
+                  },
                 ] as const
               ).map(({ id, label, hintAsc, hintDesc }) => {
                 const isActive = sortBy === id;
                 const isAsc = sortOrder === "asc";
-                const alignCenter = ["stock", "folio", "entradas", "salidas"].includes(id);
+                const alignCenter = ["stock", "folio", "entradas", "salidas", "lastEntryAt", "lastExitAt"].includes(id);
                 return (
                   <th
                     key={id}
@@ -412,8 +430,6 @@ export function InventoryView({ products: initialProducts }: { products: Product
                   </th>
                 );
               })}
-              <th className="px-4 py-3 text-center text-sm font-medium text-[var(--muted)] whitespace-nowrap min-w-[140px]">Últ. entrada</th>
-              <th className="px-4 py-3 text-center text-sm font-medium text-[var(--muted)] whitespace-nowrap min-w-[140px]">Últ. salida</th>
               <th className="px-4 py-3 text-center font-medium text-[var(--foreground)]">Acciones</th>
             </tr>
           </thead>
