@@ -36,7 +36,7 @@ export function ReceptionistDashboard({
       minimumFractionDigits: 0,
     }).format(amount);
 
-  const pendingPersonas = pagosPendientesPreview.filter((p) => p.type === "persona").slice(0, 5);
+  const pendingItems = pagosPendientesPreview.slice(0, 5);
 
   return (
     <div className="space-y-6">
@@ -128,10 +128,10 @@ export function ReceptionistDashboard({
 
         <WidgetCard title="Pagos Pendientes" href="/dashboard/pending-payments">
           <div className="space-y-3">
-            {pendingPersonas.length === 0 ? (
+            {pendingItems.length === 0 ? (
               <p className="text-sm text-[var(--muted)]">Sin pagos pendientes</p>
             ) : (
-              pendingPersonas.map((p, i) => (
+              pendingItems.map((p, i) => (
                 <div
                   key={i}
                   className="flex items-center justify-between rounded-lg border border-[var(--warning)]/30 bg-[var(--warning)]/5 p-3"
@@ -140,9 +140,11 @@ export function ReceptionistDashboard({
                     <Users className="h-4 w-4 text-[var(--warning)]" />
                     <div>
                       <p className="text-sm font-medium text-[var(--foreground)]">{p.name}</p>
-                      {p.room && (
+                      {p.type === "empresa" ? (
+                        <p className="text-xs text-[var(--muted)]">Empresa</p>
+                      ) : p.room ? (
                         <p className="text-xs text-[var(--muted)]">Hab. {p.room}</p>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   <span className="text-sm font-bold text-[var(--warning)]">

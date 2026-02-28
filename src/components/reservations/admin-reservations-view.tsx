@@ -33,11 +33,15 @@ export interface ReservationDisplay {
     special_requests?: string;
 }
 
-const RESERVATION_STYLES = [
-    "bg-emerald-500 text-white shadow-sm border border-emerald-600/20",
-    "bg-blue-500 text-white shadow-sm border border-blue-600/20",
-    "bg-violet-500 text-white shadow-sm border border-violet-600/20",
-];
+/** Estilos del calendario por estado de reserva (colores bien diferenciados entre sí) */
+const CALENDAR_STATUS_STYLES: Record<ReservationDisplay["status"], string> = {
+    pending: "bg-yellow-400 text-slate-900 shadow-sm border-2 border-yellow-500/50",
+    confirmed: "bg-blue-500 text-white shadow-sm border-2 border-blue-600/40",
+    checked_in: "bg-emerald-600 text-white shadow-sm border-2 border-emerald-700/40",
+    checked_out: "bg-slate-500 text-white shadow-sm border-2 border-slate-600/40",
+    cancelled: "bg-red-500 text-white shadow-sm border-2 border-red-600/40",
+    no_show: "bg-violet-600 text-white shadow-sm border-2 border-violet-700/40",
+};
 
 type RoomOption = { id: string; roomNumber: string; pricePerNight: number };
 type GuestOption = { id: string; fullName: string; email: string; type?: "PERSON" | "COMPANY" };
@@ -95,6 +99,7 @@ export function AdminReservationsView({
     const [newReservationOpen, setNewReservationOpen] = useState(false);
     const [reservationToDelete, setReservationToDelete] = useState<ReservationDisplay | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [confirmModal, setConfirmModal] = useState<{ type: "no_show" | "cancel"; reservation: ReservationDisplay } | null>(null);
     const [newGuestId, setNewGuestId] = useState("");
     const [roomLines, setRoomLines] = useState<RoomLine[]>([{ roomId: "", numGuests: 1 }]);
     const [newCheckIn, setNewCheckIn] = useState("");
@@ -226,6 +231,13 @@ export function AdminReservationsView({
       }
     }, [newReservationOpen]);
 
+    // Al borrar fechas, limpiar selección de habitaciones para no mostrar opciones duplicadas/inconsistentes
+    useEffect(() => {
+      if (!newCheckIn || !newCheckOut) {
+        setRoomLines((prev) => prev.map((l) => ({ ...l, roomId: "" })));
+      }
+    }, [newCheckIn, newCheckOut]);
+
     useEffect(() => {
       const singleRoom = roomLines.length === 1 && roomLines[0]?.roomId;
       setNewTotalAmount((prev) => {
@@ -289,7 +301,7 @@ export function AdminReservationsView({
     // Calendario: obtener reserva que incluye un día para una habitación (usar día local para evitar UTC)
     const getReservationForDay = (roomNumber: string, day: Date) => {
         return reservations.find((r) => {
-            if (r.room_number !== roomNumber || r.status === "cancelled") return false;
+            if (r.room_number !== roomNumber) return false;
             const start = parseLocalDateStr(r.check_in);
             const end = parseLocalDateStr(r.check_out);
             if (!start || !end) return false;
@@ -297,37 +309,28 @@ export function AdminReservationsView({
         });
     };
 
-    const isStartOfReservation = (roomNumber: string, day: Date) => {
-        return reservations.some((r) => {
-            if (r.room_number !== roomNumber || r.status === "cancelled") return false;
-            const start = parseLocalDateStr(r.check_in);
-            return start ? isSameDay(start, day) : false;
-        });
+    /** Primer día de la reserva visible en este mes (check-in real o día 1 si empezó antes) */
+    const isDisplayStartOfReservation = (roomNumber: string, day: Date) => {
+        const res = getReservationForDay(roomNumber, day);
+        if (!res) return false;
+        const start = parseLocalDateStr(res.check_in);
+        const monthStart = startOfMonth(calendarDate);
+        const firstDayInMonth = start && start < monthStart ? monthStart : start;
+        return firstDayInMonth ? isSameDay(day, firstDayInMonth) : false;
     };
 
     const getReservationSpan = (roomNumber: string, day: Date) => {
-        const r = reservations.find((r) => {
-            if (r.room_number !== roomNumber || r.status === "cancelled") return false;
-            const start = parseLocalDateStr(r.check_in);
-            return start ? isSameDay(start, day) : false;
-        });
+        const r = getReservationForDay(roomNumber, day);
         if (!r) return 0;
         const start = parseLocalDateStr(r.check_in);
         const end = parseLocalDateStr(r.check_out);
         if (!start || !end) return 0;
-        if (!isWithinInterval(day, { start, end }) || isSameDay(day, end)) return 0;
         const monthStart = startOfMonth(calendarDate);
         const monthEnd = addDays(startOfMonth(calendarDate), getDaysInMonth(calendarDate) - 1);
         const effectiveStart = start < monthStart ? monthStart : start;
         const effectiveEnd = end > monthEnd ? monthEnd : addDays(end, -1);
-        const spanStart = isSameDay(day, effectiveStart) ? effectiveStart : day;
-        let count = 0;
-        let d = spanStart;
-        while (d <= effectiveEnd) {
-            count++;
-            d = addDays(d, 1);
-        }
-        return count;
+        if (day < effectiveStart || day > effectiveEnd) return 0;
+        return differenceInDays(effectiveEnd, day) + 1;
     };
 
     const daysInMonth = getDaysInMonth(calendarDate);
@@ -456,15 +459,39 @@ export function AdminReservationsView({
                           </p>
                         )}
                       </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Check-in</label>
+                          <DatePickerInput
+                            value={newCheckIn}
+                            onChange={setNewCheckIn}
+                            placeholder="dd/mm/aaaa"
+                            minDate={format(startOfDay(new Date()), "yyyy-MM-dd")}
+                            aria-label="Fecha de check-in"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Check-out</label>
+                          <DatePickerInput
+                            value={newCheckOut}
+                            onChange={setNewCheckOut}
+                            placeholder="dd/mm/aaaa"
+                            minDate={newCheckIn || format(startOfDay(new Date()), "yyyy-MM-dd")}
+                            aria-label="Fecha de check-out"
+                          />
+                        </div>
+                      </div>
                       <div>
                         <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">Habitaciones</label>
                         <p className="mb-2 text-xs text-[var(--muted)]">
-                          Agregue una o más habitaciones e indique cuántas personas se alojarán en cada una.
+                          {newCheckIn && newCheckOut
+                            ? "Agregue una o más habitaciones disponibles para las fechas elegidas e indique cuántas personas en cada una."
+                            : "Indique primero las fechas de check-in y check-out para ver las habitaciones disponibles."}
                         </p>
                         {roomLines.map((line, index) => (
                           <div
                             key={index}
-                            className="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-3 sm:gap-4"
+                            className={`mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-[var(--border)] p-3 sm:gap-4 ${!newCheckIn || !newCheckOut ? "bg-[var(--muted)]/10 opacity-90" : "bg-[var(--background)]/50"}`}
                           >
                             <div className="min-w-0 flex-1 basis-48">
                               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Habitación</label>
@@ -475,11 +502,19 @@ export function AdminReservationsView({
                                     prev.map((l, i) => (i === index ? { ...l, roomId: v } : l))
                                   )
                                 }
-                                options={availableRoomsForLine(index).map((r) => ({
-                                  value: r.id,
-                                  label: `Hab. ${r.roomNumber} – ${r.pricePerNight.toLocaleString("es-CL")}/noche`,
-                                }))}
-                                placeholder="Seleccionar"
+                                options={
+                                  newCheckIn && newCheckOut
+                                    ? availableRoomsForLine(index).map((r) => ({
+                                        value: r.id,
+                                        label: `Hab. ${r.roomNumber} – ${r.pricePerNight.toLocaleString("es-CL")}/noche`,
+                                      }))
+                                    : []
+                                }
+                                placeholder={
+                                  newCheckIn && newCheckOut
+                                    ? "Seleccionar"
+                                    : "Indique fechas para ver habitaciones disponibles"
+                                }
                                 aria-label={`Habitación ${index + 1}`}
                               />
                             </div>
@@ -508,7 +543,8 @@ export function AdminReservationsView({
                               onClick={() =>
                                 setRoomLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
                               }
-                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                              disabled={!newCheckIn || !newCheckOut}
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:pointer-events-none disabled:opacity-50"
                               title="Quitar habitación"
                               aria-label="Quitar habitación"
                             >
@@ -519,7 +555,8 @@ export function AdminReservationsView({
                         <button
                           type="button"
                           onClick={() => setRoomLines((prev) => [...prev, { roomId: "", numGuests: 1 }])}
-                          className="rounded-lg border border-dashed border-[var(--border)] bg-transparent px-3 py-2 text-sm font-medium text-[var(--muted)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 hover:text-[var(--foreground)]"
+                          disabled={!newCheckIn || !newCheckOut}
+                          className="rounded-lg border border-dashed border-[var(--border)] bg-transparent px-3 py-2 text-sm font-medium text-[var(--muted)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-50"
                         >
                           + Agregar otra habitación
                         </button>
@@ -530,28 +567,6 @@ export function AdminReservationsView({
                               : `${availableRooms.length} disponible${availableRooms.length !== 1 ? "s" : ""} para las fechas elegidas.`}
                           </p>
                         )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Check-in</label>
-                          <DatePickerInput
-                            value={newCheckIn}
-                            onChange={setNewCheckIn}
-                            placeholder="dd/mm/aaaa"
-                            minDate={format(startOfDay(new Date()), "yyyy-MM-dd")}
-                            aria-label="Fecha de check-in"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Check-out</label>
-                          <DatePickerInput
-                            value={newCheckOut}
-                            onChange={setNewCheckOut}
-                            placeholder="dd/mm/aaaa"
-                            minDate={newCheckIn || format(startOfDay(new Date()), "yyyy-MM-dd")}
-                            aria-label="Fecha de check-out"
-                          />
-                        </div>
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Total (CLP)</label>
@@ -927,14 +942,36 @@ export function AdminReservationsView({
                         </div>
                     </div>
 
+                    {/* Estados (debajo del mes, para entender los colores del calendario) */}
+                    <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-xs">
+                        <span className="font-medium text-[var(--muted)]">Estados:</span>
+                        <div className="flex items-center gap-2">
+                            <span className="flex h-6 w-6 items-center justify-center rounded border border-emerald-200/60 bg-emerald-50 text-emerald-600 font-semibold">+</span>
+                            <span className="text-[var(--muted)]">Disponible</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="flex h-6 min-w-[24px] items-center justify-center rounded bg-slate-200 text-slate-600 font-semibold">−</span>
+                            <span className="text-[var(--muted)]">Ocupado</span>
+                        </div>
+                        <div className="h-4 w-px bg-[var(--border)]" />
+                        <div className="flex flex-wrap items-center gap-3">
+                            {(["pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show"] as const).map((status) => (
+                                <div key={status} className="flex items-center gap-1.5">
+                                    <span className={`inline-block h-4 w-4 rounded ${CALENDAR_STATUS_STYLES[status]} border border-[var(--border)]`} />
+                                    <span className="text-[var(--muted)]">{statusLabels[status]}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Cuadrícula del calendario */}
-                    <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
-                        <table className="w-full min-w-[800px] border-collapse text-sm">
+                    <div className="w-full overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
+                        <table className="w-full table-fixed border-collapse text-sm">
                             <thead>
                                 <tr className="border-b border-[var(--border)] bg-[var(--muted)]/30">
-                                    <th className="w-28 border-r border-[var(--border)] px-3 py-2.5 text-left text-xs font-medium text-[var(--muted)]">Habitación</th>
+                                    <th className="w-28 shrink-0 border-r border-[var(--border)] px-3 py-2.5 text-left text-xs font-medium text-[var(--muted)]">Habitación</th>
                                     {monthDays.map((d) => (
-                                        <th key={d.toISOString()} className="min-w-[32px] px-1 py-2 text-center text-xs font-medium text-[var(--muted)]">
+                                        <th key={d.toISOString()} className="min-w-0 px-0 py-2 text-center text-xs font-medium text-[var(--muted)]">
                                             {format(d, "d")}
                                         </th>
                                     ))}
@@ -951,32 +988,58 @@ export function AdminReservationsView({
                                         </td>
                                         {monthDays.map((day) => {
                                             const res = getReservationForDay(roomNumber, day);
-                                            const span = isStartOfReservation(roomNumber, day) ? getReservationSpan(roomNumber, day) : 0;
+                                            const span = isDisplayStartOfReservation(roomNumber, day) ? getReservationSpan(roomNumber, day) : 0;
 
-                                            if (span > 0) {
-                                                const colorIdx = reservations.findIndex((r) => r.room_number === roomNumber && r.check_in <= format(day, "yyyy-MM-dd") && r.check_out > format(day, "yyyy-MM-dd")) % RESERVATION_STYLES.length;
+                                            if (span > 0 && res) {
+                                                const statusStyle = CALENDAR_STATUS_STYLES[res.status];
+                                                const paymentStatus = getPaymentStatus(res);
+                                                const guestTypeLabel = res.guest_type === "COMPANY" ? "Empresa" : "Persona";
                                                 return (
                                                     <td
                                                         key={day.toISOString()}
                                                         colSpan={span}
                                                         className="px-0.5 py-1 align-middle"
                                                     >
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => res && setSelectedReservation(res)}
-                                                            className={`min-h-[36px] w-full flex items-center justify-center rounded-lg px-2 py-1.5 text-xs font-semibold text-white truncate transition-all hover:shadow-md hover:scale-[1.02] cursor-pointer ${RESERVATION_STYLES[colorIdx]}`}
-                                                            title={`Ver detalles: ${res?.guest_name}`}
-                                                        >
-                                                            {res?.guest_name}
-                                                        </button>
+                                                        <div className="group relative min-h-[36px] w-full">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSelectedReservation(res)}
+                                                                className={`min-h-[36px] w-full flex items-center justify-center rounded-lg px-2 py-1.5 text-xs font-semibold text-white truncate transition-all hover:shadow-md hover:scale-[1.02] cursor-pointer ${statusStyle}`}
+                                                            >
+                                                                {res.guest_name}
+                                                            </button>
+                                                            {/* Tooltip al pasar el mouse (se abre a la izquierda para no requerir scroll) */}
+                                                            <div className="pointer-events-none absolute right-full top-1/2 z-20 mr-1 -translate-y-1/2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-left text-xs shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ minWidth: "200px", maxWidth: "280px" }}>
+                                                                <p className="font-semibold text-[var(--foreground)]">{res.guest_name}</p>
+                                                                <p className={`mt-1 font-medium ${
+                                                                    res.status === "cancelled" ? "text-[var(--destructive)]" :
+                                                                    res.status === "no_show" ? "text-[var(--warning)]" :
+                                                                    res.status === "pending" ? "text-[var(--warning)]" :
+                                                                    res.status === "confirmed" ? "text-[var(--primary)]" :
+                                                                    res.status === "checked_in" ? "text-[var(--success)]" :
+                                                                    "text-[var(--muted)]"
+                                                                }`}>
+                                                                    {res.status === "cancelled" ? "Reserva cancelada" : statusLabels[res.status]}
+                                                                </p>
+                                                                <p className="mt-0.5 text-[var(--muted)]">{formatDate(res.check_in)} – {formatDate(res.check_out)}</p>
+                                                                <p className="text-[var(--muted)]">{res.nights} {res.nights === 1 ? "noche" : "noches"} · {formatCLP(res.total_price)}</p>
+                                                                <p className="mt-1 flex flex-wrap gap-1">
+                                                                    <span className="rounded px-1.5 py-0.5 bg-[var(--muted)]/20 text-[var(--muted)]">{guestTypeLabel}</span>
+                                                                    {paymentStatus && <span className={`rounded px-1.5 py-0.5 ${paymentStatus.className}`}>{paymentStatus.label}</span>}
+                                                                </p>
+                                                            </div>
+                                                        </div>
                                                     </td>
                                                 );
                                             }
                                             if (res) return null; // celda ya cubierta por colspan
 
                                             return (
-                                                <td key={day.toISOString()} className="min-w-[36px] px-0.5 py-1 align-middle">
-                                                    <div className="flex h-[36px] w-full min-w-[32px] items-center justify-center rounded-lg border border-emerald-200/60 bg-emerald-50 text-emerald-600 font-semibold shadow-sm hover:bg-emerald-100 hover:border-emerald-300/80 hover:shadow transition-all cursor-pointer" title="Disponible - Click para reservar">
+                                                <td key={day.toISOString()} className="w-[1%] px-0.5 py-1 align-middle">
+                                                    <div
+                                                        className="flex h-[36px] w-full min-w-[28px] items-center justify-center rounded-lg border border-emerald-200/60 bg-emerald-50 text-emerald-600 font-semibold shadow-sm hover:bg-emerald-100 hover:border-emerald-300/80 hover:shadow transition-all cursor-pointer"
+                                                        title={`Disponible · Hab. ${roomNumber} - Click para reservar`}
+                                                    >
                                                         +
                                                     </div>
                                                 </td>
@@ -1113,12 +1176,7 @@ export function AdminReservationsView({
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={async () => {
-                                                    if (!confirm("¿Marcar como no presentado? El huésped no asistió a la reserva.")) return;
-                                                    const ok = await updateReservationStatus(reservation.id, "NO_SHOW");
-                                                    if (ok?.success) router.refresh();
-                                                    else if (ok?.error) alert(ok.error);
-                                                }}
+                                                onClick={() => setConfirmModal({ type: "no_show", reservation })}
                                                 className="flex items-center justify-center rounded-lg border border-[var(--warning)]/50 bg-[var(--warning)]/10 px-3 py-2 text-sm font-medium text-[var(--warning)] transition-colors hover:bg-[var(--warning)]/20"
                                             >
                                                 No se presentó
@@ -1138,17 +1196,10 @@ export function AdminReservationsView({
                                             Check-out realizado
                                         </button>
                                     )}
-                                    {reservation.status !== "cancelled" && reservation.status !== "no_show" && (
+                                    {reservation.status !== "cancelled" && reservation.status !== "no_show" && reservation.status !== "checked_out" && (
                                         <button
                                             type="button"
-                                            onClick={async () => {
-                                                if (!confirm("¿Cancelar esta reserva? Esta acción no se puede deshacer.")) return;
-                                                const ok = await updateReservationStatus(reservation.id, "CANCELLED");
-                                                if (ok?.success) {
-                                                    setSelectedReservation(null);
-                                                    router.refresh();
-                                                } else if (ok?.error) alert(ok.error);
-                                            }}
+                                            onClick={() => setConfirmModal({ type: "cancel", reservation })}
                                             className="flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] hover:border-[var(--destructive)]/30"
                                         >
                                             Cancelar
@@ -1168,6 +1219,66 @@ export function AdminReservationsView({
             </div>
                 </>
             )}
+
+            {/* Modal confirmar (no presentado / cancelar reserva) */}
+            {confirmModal &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[55] flex min-h-screen items-center justify-center bg-black/50 p-4"
+                  onClick={() => setConfirmModal(null)}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="confirm-modal-title"
+                >
+                  <div
+                    className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 id="confirm-modal-title" className="text-lg font-semibold text-[var(--foreground)]">
+                      {confirmModal.type === "no_show" ? "No se presentó" : "Cancelar reserva"}
+                    </h3>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      {confirmModal.type === "no_show"
+                        ? "¿Marcar como no presentado? El huésped no asistió a la reserva."
+                        : "¿Cancelar esta reserva? Esta acción no se puede deshacer."}
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-[var(--foreground)]">
+                      {confirmModal.reservation.guest_name}
+                      {confirmModal.reservation.room_number ? ` · Hab. ${confirmModal.reservation.room_number}` : ""}
+                    </p>
+                    <div className="mt-6 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmModal(null)}
+                        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const { type, reservation: res } = confirmModal;
+                          setConfirmModal(null);
+                          const ok = await updateReservationStatus(res.id, type === "no_show" ? "NO_SHOW" : "CANCELLED");
+                          if (ok?.success) {
+                            if (type === "cancel") setSelectedReservation(null);
+                            router.refresh();
+                          } else if (ok?.error) alert(ok.error);
+                        }}
+                        className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 ${
+                          confirmModal.type === "no_show"
+                            ? "bg-[var(--warning)]"
+                            : "bg-[var(--destructive)]"
+                        }`}
+                      >
+                        Aceptar
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
 
             {/* Modal confirmar eliminar reserva */}
             {reservationToDelete &&
