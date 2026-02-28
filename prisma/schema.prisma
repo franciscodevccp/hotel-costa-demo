@@ -30,6 +30,8 @@ model Establishment {
   products     InventoryProduct[]
   suppliers    Supplier[]
   invoices     Invoice[]
+  receivables  Receivable[]
+  payables     Payable[]
 }
 
 // ─── User ─────────────────────────────────────────────────────────────────
@@ -330,6 +332,78 @@ enum InvoiceType {
   COTIZACION
 }
 
+
+// ─── Por cobrar (cuentas por cobrar manuales, no ligadas a reservas) ─────────
+model Receivable {
+  id              String    @id @default(cuid())
+  establishmentId String
+  /// Quién nos debe (empresa o particular)
+  debtorName      String
+  /// Monto total adeudado (CLP)
+  amount          Int
+  /// Fecha de ingreso (cuando se registró la deuda)
+  entryDate       DateTime?
+  /// Fecha de vencimiento / pago acordada
+  dueDate         DateTime?
+  /// Número de factura u orden de compra
+  invoiceNumber   String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  establishment Establishment      @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  payments      ReceivablePayment[]
+
+  @@index([establishmentId])
+  @@index([establishmentId, dueDate])
+}
+
+model ReceivablePayment {
+  id           String   @id @default(cuid())
+  receivableId String
+  /// Monto cobrado (CLP)
+  amount       Int
+  paidAt       DateTime @default(now())
+  notes        String?
+
+  receivable Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+
+  @@index([receivableId])
+}
+
+// ─── Por pagar (cuentas por pagar manuales: a quién le debemos) ─────────────
+model Payable {
+  id              String    @id @default(cuid())
+  establishmentId String
+  /// A quién le debemos (proveedor o acreedor)
+  creditorName    String
+  /// Monto total a pagar (CLP)
+  amount          Int
+  entryDate       DateTime?
+  dueDate         DateTime?
+  invoiceNumber   String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  establishment Establishment   @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  payments       PayablePayment[]
+
+  @@index([establishmentId])
+  @@index([establishmentId, dueDate])
+}
+
+model PayablePayment {
+  id          String   @id @default(cuid())
+  payableId   String
+  amount      Int      // Monto pagado (CLP)
+  paidAt      DateTime @default(now())
+  notes       String?
+
+  payable Payable @relation(fields: [payableId], references: [id], onDelete: Cascade)
+
+  @@index([payableId])
+}
 
 // ─── SyncLog (MotoPress / integraciones) ────────────────────────────────────
 model SyncLog {

@@ -17,17 +17,21 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Wallet,
+  Banknote,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types/database";
 import { useSidebar } from "@/hooks/use-sidebar";
 
-const navItems: { href: string; label: string; icon: React.ElementType }[] = [
+const navItems: { href: string; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/rooms", label: "Habitaciones", icon: BedDouble },
   { href: "/dashboard/reservations", label: "Reservas", icon: Calendar },
   { href: "/dashboard/guests", label: "Huéspedes", icon: Users },
   { href: "/dashboard/payments", label: "Pagos", icon: CreditCard },
   { href: "/dashboard/pending-payments", label: "Pagos pendientes", icon: Clock },
+  { href: "/dashboard/receivables", label: "Por cobrar", icon: Wallet, adminOnly: true },
+  { href: "/dashboard/payables", label: "Por pagar", icon: Banknote, adminOnly: true },
   { href: "/dashboard/inventory", label: "Inventario", icon: Package },
   { href: "/dashboard/invoices", label: "Boletas / Facturas", icon: FileText },
   { href: "/dashboard/reports", label: "Reportes", icon: BarChart3 },
@@ -120,8 +124,9 @@ export function DashboardSidebar({
       )}
 
       <nav className="sidebar-scroll flex-1 space-y-1 overflow-y-auto p-2">
-        {navItems.map(({ href, label, icon: Icon }, index) => {
+        {navItems.map(({ href, label, icon: Icon, adminOnly }, index) => {
           if (href === "/dashboard/settings" && !showSettings) return null;
+          if (adminOnly && userRole !== "admin") return null;
 
           if (userRole === "receptionist") {
             const receptionistHiddenRoutes = [
