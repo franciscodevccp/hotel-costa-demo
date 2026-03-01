@@ -10,7 +10,7 @@ export async function getDashboardStats(establishmentId: string) {
   const endPrevMonth = endOfMonth(subMonths(now, 1));
   const todayStart = startOfDay(now);
   const todayEnd = endOfDay(now);
-  const [monthlyIncome, prevMonthlyIncome, paymentsToday, activeReservations, currentGuests, totalRooms, occupiedRooms, lowStockCount, pendingSum, invoiceCount, checkinsToday, checkoutsToday] = await Promise.all([
+  const [monthlyIncome, prevMonthlyIncome, paymentsToday, activeReservations, currentGuests, totalRooms, occupiedRooms, lowStockCount, pendingSum, invoiceCount, checkinsToday, checkoutsToday, totalPorPagar, totalPorCobrar] = await Promise.all([
     prisma.payment.aggregate({
       where: { establishmentId, status: "COMPLETED", paidAt: { gte: startMonth, lte: endMonth } },
       _sum: { amount: true },
@@ -47,17 +47,23 @@ export async function getDashboardStats(establishmentId: string) {
         establishmentId,
         status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
       },
-      select: { id: true, totalAmount: true },
+      select: {
+        id: true,
+        totalAmount: true,
+        consumptions: { select: { amount: true } },
+      },
       take: 500,
     }).then(async (reservations) => {
       let total = 0;
       for (const r of reservations) {
+        const consumptionSum = r.consumptions.reduce((s, c) => s + c.amount, 0);
+        const totalToPay = r.totalAmount + consumptionSum;
         const sum = await prisma.payment.aggregate({
           where: { reservationId: r.id, status: "COMPLETED" },
           _sum: { amount: true },
         });
         const paid = sum._sum.amount ?? 0;
-        if (paid < r.totalAmount) total += r.totalAmount - paid;
+        if (paid < totalToPay) total += totalToPay - paid;
       }
       return total;
     }),
@@ -77,6 +83,18 @@ export async function getDashboardStats(establishmentId: string) {
         ],
       },
     }),
+    prisma.payable.findMany({
+      where: { establishmentId },
+      include: { payments: { select: { amount: true } } },
+    }).then((list) =>
+      list.reduce((s, p) => s + Math.max(0, p.amount - p.payments.reduce((sum, x) => sum + x.amount, 0)), 0)
+    ),
+    prisma.receivable.findMany({
+      where: { establishmentId },
+      include: { payments: { select: { amount: true } } },
+    }).then((list) =>
+      list.reduce((s, r) => s + Math.max(0, r.amount - r.payments.reduce((sum, x) => sum + x.amount, 0)), 0)
+    ),
   ]);
 
   const revenue = monthlyIncome._sum.amount ?? 0;
@@ -97,6 +115,8 @@ export async function getDashboardStats(establishmentId: string) {
     guests: currentGuests,
     cobradoHoy: paymentsToday._sum.amount ?? 0,
     pagosPendientes: pendingSum,
+    totalPorPagar,
+    totalPorCobrar,
     productosBajoStock: lowStockCount,
     boletasEsteMes: invoiceCount,
     totalRooms,
@@ -124,17 +144,19 @@ export async function getPendingPaymentsPreview(establishmentId: string, limit =
       establishmentId,
       status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
     },
-    include: { guest: true, room: true },
+    include: { guest: true, room: true, consumptions: { select: { amount: true } } },
     take: 50,
   });
   const out: { type: "persona" | "empresa"; name: string; amount: number; room?: string }[] = [];
   for (const r of reservations) {
+    const consumptionSum = r.consumptions.reduce((s, c) => s + c.amount, 0);
+    const totalToPay = r.totalAmount + consumptionSum;
     const sum = await prisma.payment.aggregate({
       where: { reservationId: r.id, status: "COMPLETED" },
       _sum: { amount: true },
     });
     const paid = sum._sum.amount ?? 0;
-    const pending = r.totalAmount - paid;
+    const pending = totalToPay - paid;
     if (pending <= 0) continue;
     if (r.companyName) {
       out.push({ type: "empresa", name: r.companyName, amount: pending });

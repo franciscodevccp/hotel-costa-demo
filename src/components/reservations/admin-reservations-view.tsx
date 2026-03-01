@@ -154,6 +154,13 @@ export function AdminReservationsView({
     const [consumptionFormPhotoFile, setConsumptionFormPhotoFile] = useState<File | null>(null);
     const [consumptionFormSaving, setConsumptionFormSaving] = useState(false);
     const [consumptionFormError, setConsumptionFormError] = useState<string | null>(null);
+    const [consumptionToDelete, setConsumptionToDelete] = useState<{
+        id: string;
+        consumption_number: string;
+        description?: string;
+        amount: number;
+    } | null>(null);
+    const [consumptionDeleting, setConsumptionDeleting] = useState(false);
     const [bulkSaving, setBulkSaving] = useState(false);
     const [localGuests, setLocalGuests] = useState<GuestOption[]>(guests);
     const [newGuestOpen, setNewGuestOpen] = useState(false);
@@ -196,6 +203,13 @@ export function AdminReservationsView({
         setEmergencyContactPhone("");
       }
     }, [newGuestOpen]);
+
+    // Sincronizar reserva seleccionada con datos actualizados (ej. tras guardar un consumo)
+    useEffect(() => {
+      if (!selectedReservation) return;
+      const updated = reservations.find((r) => r.id === selectedReservation.id);
+      if (updated) setSelectedReservation(updated);
+    }, [reservations, selectedReservation?.id]);
 
     // Si cambia a huésped persona y tenía Orden de compra, volver a método normal
     useEffect(() => {
@@ -1533,6 +1547,62 @@ export function AdminReservationsView({
                 document.body
               )}
 
+            {/* Modal confirmar eliminar consumo */}
+            {consumptionToDelete && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center bg-black/50 p-4"
+                  onClick={() => !consumptionDeleting && setConsumptionToDelete(null)}
+                >
+                  <div
+                    className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">Eliminar consumo</h3>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      ¿Eliminar este consumo? Esta acción no se puede deshacer.
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-[var(--foreground)]">
+                      N° {consumptionToDelete.consumption_number}
+                      {consumptionToDelete.description ? ` · ${consumptionToDelete.description}` : ""} — {formatCLP(consumptionToDelete.amount)}
+                    </p>
+                    <div className="mt-6 flex gap-3">
+                      <button
+                        type="button"
+                        disabled={consumptionDeleting}
+                        onClick={() => !consumptionDeleting && setConsumptionToDelete(null)}
+                        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20 disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={consumptionDeleting}
+                        onClick={async () => {
+                          setConsumptionDeleting(true);
+                          try {
+                            const res = await deleteConsumption(consumptionToDelete.id);
+                            if (res?.success) {
+                              setConsumptionCardUrlOverride((prev) => { const next = { ...prev }; delete next[consumptionToDelete.id]; return next; });
+                              setConsumptionToDelete(null);
+                              router.refresh();
+                            } else if (res?.error) alert(res.error);
+                          } catch (err) {
+                            alert(err instanceof Error ? err.message : "Error al eliminar el consumo");
+                          } finally {
+                            setConsumptionDeleting(false);
+                          }
+                        }}
+                        className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                      >
+                        {consumptionDeleting ? "Eliminando…" : "Aceptar"}
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+
             {/* Modal detalle de reserva */}
             {selectedReservation ? (
                 <div
@@ -1865,14 +1935,7 @@ export function AdminReservationsView({
                                                                         )}
                                                                         <button
                                                                             type="button"
-                                                                            onClick={async () => {
-                                                                                if (!confirm("¿Eliminar este consumo?")) return;
-                                                                                const res = await deleteConsumption(c.id);
-                                                                                if (res?.success) {
-                                                                                    setConsumptionCardUrlOverride((prev) => { const next = { ...prev }; delete next[c.id]; return next; });
-                                                                                    router.refresh();
-                                                                                } else if (res?.error) alert(res.error);
-                                                                            }}
+                                                                            onClick={() => setConsumptionToDelete({ id: c.id, consumption_number: c.consumption_number, description: c.description, amount: c.amount })}
                                                                             className="p-1.5 rounded text-[var(--destructive)] hover:bg-[var(--destructive)]/10"
                                                                             title="Eliminar consumo"
                                                                         >
@@ -2017,7 +2080,9 @@ export function AdminReservationsView({
                         setConsumptionFormError(null);
                         const num = consumptionFormNumber.trim();
                         if (!num) { setConsumptionFormError("Indique el número de consumo"); return; }
+                        const amount = Math.round(Number(consumptionFormAmount)) || 0;
                         setConsumptionFormSaving(true);
+                        setConsumptionFormError(null);
                         try {
                           let cardImageUrl: string | null = null;
                           if (consumptionFormPhotoFile) {
@@ -2035,14 +2100,22 @@ export function AdminReservationsView({
                           const result = await createConsumption(selectedReservation.id, {
                             consumptionNumber: num,
                             description: consumptionFormDescription.trim() || null,
-                            amount: consumptionFormAmount,
+                            amount,
                             method: "CASH",
                             cardImageUrl,
                           });
                           if (result?.success) {
                             setConsumptionFormOpen(false);
+                            setConsumptionFormNumber("");
+                            setConsumptionFormDescription("");
+                            setConsumptionFormAmount(0);
+                            setConsumptionFormPhotoFile(null);
                             router.refresh();
-                          } else if (result?.error) setConsumptionFormError(result.error);
+                          } else if (result?.error) {
+                            setConsumptionFormError(result.error);
+                          }
+                        } catch (err) {
+                          setConsumptionFormError(err instanceof Error ? err.message : "Error al guardar el consumo");
                         } finally {
                           setConsumptionFormSaving(false);
                         }
@@ -2081,7 +2154,7 @@ export function AdminReservationsView({
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Foto de la tarjeta de consumo</label>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Foto de la tarjeta de consumo (opcional)</label>
                         <input
                           type="file"
                           accept="image/*"

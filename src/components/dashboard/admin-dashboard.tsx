@@ -1,13 +1,15 @@
 import {
   DollarSign,
   TrendingUp,
-  Users,
   Calendar,
   Clock,
   Package,
   AlertTriangle,
   Building2,
   CreditCard,
+  Users,
+  Banknote,
+  Wallet,
 } from "lucide-react";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { WidgetCard } from "@/components/dashboard/widget-card";
@@ -56,9 +58,12 @@ export function AdminDashboard({
           icon={Calendar}
         />
         <StatCard
-          title="Huéspedes Actuales"
-          value={stats.guests}
-          icon={Users}
+          title="Por pagar"
+          value={formatCLP(stats.totalPorPagar)}
+          icon={Banknote}
+          description="Proveedores o acreedores"
+          href="/dashboard/payables"
+          variant="warning"
         />
       </div>
 
@@ -88,11 +93,12 @@ export function AdminDashboard({
           variant="warning"
         />
         <StatCard
-          title="Boletas Este Mes"
-          value={stats.boletasEsteMes}
-          icon={Package}
-          description="Documentos registrados"
-          href="/dashboard/invoices"
+          title="Por cobrar"
+          value={formatCLP(stats.totalPorCobrar)}
+          icon={Wallet}
+          description="Empresas o particulares que nos deben"
+          href="/dashboard/receivables"
+          variant="warning"
         />
       </div>
 

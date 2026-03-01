@@ -442,7 +442,8 @@ export async function createConsumption(
   }
   const num = data.consumptionNumber?.trim();
   if (!num) return { error: "Indique el número de consumo" };
-  if (data.amount < 0) return { error: "El monto debe ser mayor o igual a 0" };
+  const amount = Math.round(Number(data.amount)) || 0;
+  if (amount < 0) return { error: "El monto debe ser mayor o igual a 0" };
   try {
     const reservation = await prisma.reservation.findFirst({
       where: { id: reservationId, establishmentId: session.user.establishmentId },
@@ -453,12 +454,15 @@ export async function createConsumption(
         reservationId,
         consumptionNumber: num,
         description: data.description?.trim() || null,
-        amount: data.amount,
+        amount,
         method: data.method,
         cardImageUrl: data.cardImageUrl || null,
       },
     });
     revalidatePath("/dashboard/reservations");
+    revalidatePath("/dashboard/room-register");
+    revalidatePath("/dashboard/pending-payments");
+    revalidatePath("/dashboard/payments");
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al crear el consumo";

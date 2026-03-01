@@ -25,6 +25,8 @@ export default async function ReservationsPage() {
       const room = r.room!;
       const paid = r.payments.reduce((s, p) => s + p.amount, 0);
       const consumptions = (r as { consumptions?: { id: string; consumptionNumber: string; description: string | null; amount: number; method: string; cardImageUrl: string | null; createdAt: Date }[] }).consumptions ?? [];
+      const consumptionSum = consumptions.reduce((s, c) => s + c.amount, 0);
+      const totalToPay = r.totalAmount + consumptionSum;
       return {
         id: r.id,
         guest_name: guest.fullName,
@@ -36,9 +38,9 @@ export default async function ReservationsPage() {
         check_in: format(r.checkIn, "yyyy-MM-dd"),
         check_out: format(r.checkOut, "yyyy-MM-dd"),
         status: r.status.toLowerCase() as "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled" | "no_show",
-        total_price: r.totalAmount,
+        total_price: totalToPay,
         paid_amount: paid,
-        pending_amount: Math.max(0, r.totalAmount - paid),
+        pending_amount: Math.max(0, totalToPay - paid),
         nights: differenceInDays(r.checkOut, r.checkIn),
         guests: r.numGuests,
         payment_term_days: r.paymentTermDays ?? undefined,

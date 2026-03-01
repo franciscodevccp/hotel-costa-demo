@@ -33,7 +33,7 @@ export async function getPendingCompanies(establishmentId: string) {
       paymentTermDays: { not: null, gt: 0 },
       status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
     },
-    include: { guest: true, room: true },
+    include: { guest: true, room: true, consumptions: { select: { amount: true } } },
   });
   const today = startOfDay(new Date());
   const out: Array<{
@@ -51,12 +51,14 @@ export async function getPendingCompanies(establishmentId: string) {
     business_days_remaining: number;
   }> = [];
   for (const r of reservations) {
+    const consumptionSum = r.consumptions.reduce((s, c) => s + c.amount, 0);
+    const totalToPay = r.totalAmount + consumptionSum;
     const sum = await prisma.payment.aggregate({
       where: { reservationId: r.id },
       _sum: { amount: true },
     });
     const paid = sum._sum.amount ?? 0;
-    const pending = r.totalAmount - paid;
+    const pending = totalToPay - paid;
     if (pending <= 0) continue;
     const due_date =
       r.paymentTermDays != null && r.paymentTermDays > 0
@@ -70,7 +72,7 @@ export async function getPendingCompanies(establishmentId: string) {
       companyEmail: r.companyEmail,
       guestName: r.guest.fullName,
       roomNumber: r.room.roomNumber,
-      totalAmount: r.totalAmount,
+      totalAmount: totalToPay,
       paidAmount: paid,
       pendingAmount: pending,
       paymentTermDays: r.paymentTermDays,
@@ -92,7 +94,7 @@ export async function getPendingPersons(establishmentId: string) {
         { companyName: { not: null }, OR: [{ paymentTermDays: null }, { paymentTermDays: 0 }] },
       ],
     },
-    include: { guest: true, room: true },
+    include: { guest: true, room: true, consumptions: { select: { amount: true } } },
   });
   const out: Array<{
     id: string;
@@ -106,18 +108,20 @@ export async function getPendingPersons(establishmentId: string) {
     companyName: string | null;
   }> = [];
   for (const r of reservations) {
+    const consumptionSum = r.consumptions.reduce((s, c) => s + c.amount, 0);
+    const totalToPay = r.totalAmount + consumptionSum;
     const sum = await prisma.payment.aggregate({
       where: { reservationId: r.id },
       _sum: { amount: true },
     });
     const paid = sum._sum.amount ?? 0;
-    const pending = r.totalAmount - paid;
+    const pending = totalToPay - paid;
     if (pending <= 0) continue;
     out.push({
       id: r.id,
       guestName: r.guest.fullName,
       roomNumber: r.room.roomNumber,
-      totalAmount: r.totalAmount,
+      totalAmount: totalToPay,
       paidAmount: paid,
       pendingAmount: pending,
       guestPhone: r.guest.phone,

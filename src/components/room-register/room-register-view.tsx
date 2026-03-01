@@ -96,15 +96,16 @@ export function RoomRegisterView({
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--muted)]/40">
-                <th className="px-4 py-3 text-left font-semibold text-[var(--foreground)]">Habitación</th>
-                <th className="px-4 py-3 text-left font-semibold text-[var(--foreground)]">Tipo</th>
-                <th className="px-4 py-3 text-right font-semibold text-[var(--foreground)]">Valor noche</th>
-                <th className="px-4 py-3 text-left font-semibold text-[var(--foreground)]">Empresa / Pasajero</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Habitación</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Tipo</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Valor noche</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Empresa / Pasajero</th>
                 <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">N° pers.</th>
-                <th className="px-4 py-3 text-left font-semibold text-[var(--foreground)]">Tarjeta ingreso</th>
-                <th className="px-4 py-3 text-right font-semibold text-[var(--foreground)]">Abono</th>
-                <th className="px-4 py-3 text-right font-semibold text-[var(--foreground)]">Saldo</th>
-                <th className="px-4 py-3 text-right font-semibold text-[var(--foreground)]">Total</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Tarjeta ingreso</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Abono</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Consumos</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Saldo</th>
+                <th className="px-4 py-3 text-center font-semibold text-[var(--foreground)]">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -119,31 +120,34 @@ export function RoomRegisterView({
                     row.guestName ? "bg-[var(--primary)]/5 hover:bg-[var(--primary)]/10" : "hover:bg-[var(--muted)]/20"
                   }`}
                 >
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center gap-1.5 font-medium text-[var(--foreground)]">
+                  <td className="px-4 py-3 text-center">
+                    <span className="inline-flex items-center justify-center gap-1.5 font-medium text-[var(--foreground)]">
                       <BedDouble className="h-4 w-4 text-[var(--muted)]" />
                       {row.roomNumber}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-[var(--muted)]">
+                  <td className="px-4 py-3 text-center text-[var(--muted)]">
                     {ROOM_TYPE_LABELS[row.type] ?? row.type} ({row.maxGuests})
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[var(--foreground)]">
+                  <td className="px-4 py-3 text-center tabular-nums text-[var(--foreground)]">
                     {formatCLP(row.pricePerNight)}
                   </td>
-                  <td className="px-4 py-3 text-[var(--foreground)]">
+                  <td className="px-4 py-3 text-center text-[var(--foreground)]">
                     {row.guestName ?? <span className="text-[var(--muted)]">—</span>}
                   </td>
                   <td className="px-4 py-3 text-center tabular-nums">
                     {row.numGuests != null ? row.numGuests : "—"}
                   </td>
-                  <td className="px-4 py-3 font-mono text-[var(--muted)]">
+                  <td className="px-4 py-3 text-center font-mono text-[var(--muted)]">
                     {row.folioNumber ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td className="px-4 py-3 text-center tabular-nums">
                     {row.paidAmount != null ? formatCLP(row.paidAmount) : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td className="px-4 py-3 text-center tabular-nums">
+                    {row.consumptionSum != null && row.consumptionSum > 0 ? formatCLP(row.consumptionSum) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-center tabular-nums">
                     {row.balance != null ? (
                       row.balance > 0 ? (
                         <span className="font-medium text-[var(--primary)]">{formatCLP(row.balance)}</span>
@@ -154,7 +158,7 @@ export function RoomRegisterView({
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">
+                  <td className="px-4 py-3 text-center tabular-nums font-medium">
                     {row.totalAmount != null ? formatCLP(row.totalAmount) : "—"}
                   </td>
                 </tr>
@@ -308,7 +312,11 @@ function DetailModal({ row, onClose }: { row: RoomRegisterRow; onClose: () => vo
                   Pagos
                 </h4>
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-                  <div className="mb-4 grid grid-cols-3 gap-4 rounded-lg bg-[var(--primary)]/10 px-4 py-3 text-center">
+                  <div className="mb-4 grid grid-cols-2 gap-4 rounded-lg bg-[var(--primary)]/10 px-4 py-3 text-center sm:grid-cols-4">
+                    <div>
+                      <p className="text-xs text-[var(--muted)]">Consumos</p>
+                      <p className="text-lg font-semibold tabular-nums">{formatCLP(row.consumptionSum ?? 0)}</p>
+                    </div>
                     <div>
                       <p className="text-xs text-[var(--muted)]">Abonado</p>
                       <p className="text-lg font-semibold tabular-nums">{formatCLP(row.paidAmount ?? 0)}</p>

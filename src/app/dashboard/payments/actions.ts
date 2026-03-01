@@ -134,19 +134,20 @@ export async function completePaymentWithRest(
         id: paymentId,
         establishmentId: session.user.establishmentId,
       },
-      include: { reservation: { select: { totalAmount: true } } },
+      include: { reservation: { select: { totalAmount: true, consumptions: { select: { amount: true } } } } },
     });
     if (!payment) {
       return { error: "Pago no encontrado" };
     }
 
-    const totalAmount = payment.reservation.totalAmount;
+    const consumptionSum = payment.reservation.consumptions.reduce((s, c) => s + c.amount, 0);
+    const totalToPay = payment.reservation.totalAmount + consumptionSum;
     const newAmount = payment.amount + Math.round(additionalAmount);
-    if (newAmount > totalAmount) {
-      return { error: `El monto no puede superar el total de la reserva (${totalAmount} CLP)` };
+    if (newAmount > totalToPay) {
+      return { error: `El monto no puede superar el total de la reserva (${totalToPay} CLP)` };
     }
     // Si aún falta por pagar → Pago de abono (PARTIAL); si ya cubre todo → Pago total (COMPLETED)
-    const newStatus = newAmount >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+    const newStatus = newAmount >= totalToPay ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
 
     const currentMethods = payment.additionalMethods ?? [];
     const isSameAsInitial = payment.method === method;
@@ -218,17 +219,18 @@ export async function registerFirstPayment(
   try {
     const reservation = await prisma.reservation.findFirst({
       where: { id: reservationId, establishmentId: session.user.establishmentId },
-      include: { payments: true },
+      include: { payments: true, consumptions: { select: { amount: true } } },
     });
     if (!reservation) {
       return { error: "Reserva no encontrada" };
     }
+    const consumptionSum = reservation.consumptions.reduce((s, c) => s + c.amount, 0);
+    const totalToPay = reservation.totalAmount + consumptionSum;
     const existingSum = reservation.payments.reduce((s, p) => s + p.amount, 0);
-    const totalAmount = reservation.totalAmount;
-    if (amount > totalAmount) {
-      return { error: `El monto no puede superar el total de la reserva (${totalAmount} CLP)` };
+    if (amount > totalToPay) {
+      return { error: `El monto no puede superar el total de la reserva (${totalToPay} CLP)` };
     }
-    const status = amount >= totalAmount ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+    const status = existingSum + amount >= totalToPay ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
 
     const receiptUrls = receiptUrl ? [receiptUrl] : [];
     const receiptEntries =

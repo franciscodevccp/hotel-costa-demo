@@ -78,7 +78,8 @@ export async function getRoomRegister(establishmentId: string, date: Date) {
   return sortedRooms.map((room) => {
     const res = reservationByRoom.get(room.id);
     const paid = res?.payments.reduce((s, p) => s + p.amount, 0) ?? 0;
-    const total = res?.totalAmount ?? 0;
+    const consumptionSum = res?.consumptions.reduce((s, c) => s + c.amount, 0) ?? 0;
+    const total = res != null ? (res.totalAmount ?? 0) + consumptionSum : 0;
     const balance = Math.max(0, total - paid);
     const guestLabel = res
       ? (res.guest.type === "COMPANY" && res.guest.companyName
@@ -143,6 +144,7 @@ export async function getRoomRegister(establishmentId: string, date: Date) {
       numGuests: res?.numGuests ?? null,
       folioNumber: res?.folioNumber ?? null,
       paidAmount: res ? paid : null,
+      consumptionSum: res ? consumptionSum : null,
       balance: res ? balance : null,
       totalAmount: res ? total : null,
       detail,
