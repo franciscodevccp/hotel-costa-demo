@@ -28,9 +28,10 @@ export default async function PaymentsPage({
   for (const p of raw) {
     paidByReservation.set(p.reservationId, (paidByReservation.get(p.reservationId) ?? 0) + p.amount);
   }
+  // Total a pagar = habitación + consumos; así el saldo pendiente coincide con la página "Pagos pendientes".
   const payments = raw.map((p) => {
-    const consumptionSum = p.reservation.consumptions?.reduce((s, c) => s + c.amount, 0) ?? 0;
-    const totalToPay = p.reservation.totalAmount + consumptionSum;
+    const consumptionSum = (p.reservation.consumptions ?? []).reduce((s, c) => s + (c?.amount ?? 0), 0);
+    const totalToPay = (p.reservation.totalAmount ?? 0) + consumptionSum;
     const reservationPaidAmount = paidByReservation.get(p.reservationId) ?? 0;
     return {
       id: p.id,

@@ -44,11 +44,19 @@ export function EditPaymentModal({
   const [addingNew, setAddingNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const totalReserva = payment.total_amount ?? payment.amount;
+  // Total a pagar (habitación + consumos). Usar siempre total_amount cuando venga del servidor para reflejar el saldo real.
+  const totalReserva =
+    typeof payment.total_amount === "number" && payment.total_amount >= 0
+      ? payment.total_amount
+      : payment.amount ?? 0;
   const paymentsOfReservation = payments.filter(
     (p) => p.reservation_id === payment.reservation_id
   );
-  const totalPagado = paymentsOfReservation.reduce((s, p) => s + p.amount, 0);
+  // Preferir el total abonado calculado en servidor (incluye todos los pagos de la reserva) para que Pendiente coincida con la página de pagos pendientes.
+  const totalPagado =
+    typeof payment.reservation_paid_amount === "number"
+      ? payment.reservation_paid_amount
+      : paymentsOfReservation.reduce((s, p) => s + p.amount, 0);
   const pendiente = Math.max(0, totalReserva - totalPagado);
 
   const [newPaymentAmount, setNewPaymentAmount] = useState("");
@@ -65,12 +73,9 @@ export function EditPaymentModal({
 
   // Pre-llenar "Monto a registrar" solo al abrir el modal; no resetear cuando cambia pendiente, para no pisar lo que escribe el usuario (ej. 20.000)
   useEffect(() => {
-    const totalReserva = payment.total_amount ?? payment.amount;
-    const otrosPagos = paymentsOfReservation
-      .filter((p) => p.id !== payment.id)
-      .reduce((s, p) => s + p.amount, 0);
-    const totalPagadoInicial = otrosPagos + payment.amount;
-    const pendInicial = Math.max(0, totalReserva - totalPagadoInicial);
+    const totalRes = typeof payment.total_amount === "number" && payment.total_amount >= 0 ? payment.total_amount : payment.amount ?? 0;
+    const totalPag = typeof payment.reservation_paid_amount === "number" ? payment.reservation_paid_amount : paymentsOfReservation.reduce((s, p) => s + p.amount, 0);
+    const pendInicial = Math.max(0, totalRes - totalPag);
     setNewPaymentAmount(String(pendInicial));
   }, [payment.id]);
 

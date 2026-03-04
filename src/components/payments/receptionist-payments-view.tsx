@@ -97,7 +97,7 @@ export function ReceptionistPaymentsView({
         room_number: pend.roomNumber,
         amount: 0,
         total_amount: pend.totalAmount,
-        reservation_paid_amount: 0,
+        reservation_paid_amount: pend.paidAmount,
         method: "cash",
         additional_methods: [],
         status: "pending",
