@@ -33,9 +33,7 @@ export async function createGuest(
   const nationality = formData.get("nationality")?.toString()?.trim() || "Chile";
 
   if (!fullName) return { error: "El nombre completo es obligatorio" };
-  if (!email) return { error: "El email es obligatorio" };
   if (!phone) return { error: "El teléfono es obligatorio" };
-  if (!rut) return { error: "El RUT es obligatorio" };
   if (guestType === "COMPANY" && !companyName) return { error: "La razón social es obligatoria para empresas" };
 
   try {
@@ -44,9 +42,9 @@ export async function createGuest(
         establishmentId: session.user.establishmentId,
         type: guestType,
         fullName,
-        email: email!,
+        email: email ?? null,
         phone: phone!,
-        rut,
+        rut: rut ?? null,
         emergencyContact,
         nationality,
         ...(guestType === "COMPANY" ? { companyName, companyRut, companyEmail } : {}),
@@ -123,9 +121,7 @@ export async function updateGuest(
   const notes = formData.get("notes")?.toString()?.trim() || null;
 
   if (!fullName) return { error: "El nombre completo es obligatorio" };
-  if (!email) return { error: "El email es obligatorio" };
   if (!phone) return { error: "El teléfono es obligatorio" };
-  if (!rut) return { error: "El RUT es obligatorio" };
 
   try {
     const updated = await prisma.guest.updateMany({
@@ -135,9 +131,9 @@ export async function updateGuest(
       },
       data: {
         fullName,
-        email: email!,
+        email: email ?? null,
         phone: phone!,
-        rut,
+        rut: rut ?? null,
         emergencyContact,
         notes,
       },

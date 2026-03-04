@@ -6,6 +6,8 @@ import { useActionState } from "react";
 import { createPortal } from "react-dom";
 import { Search, Users, Lock, X, Calendar, Plus, Trash2, User, Building2 } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
+import { formatChileanRut, RUT_FORMATTED_MAX_LENGTH } from "@/lib/utils/rut";
+import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, deleteGuest, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
 
 type GuestRow = Awaited<ReturnType<typeof import("@/lib/queries/guests").getGuests>>[number];
@@ -48,6 +50,8 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
   const [showEditEmergencyContact, setShowEditEmergencyContact] = useState(false);
   const [editEmergencyName, setEditEmergencyName] = useState("");
   const [editEmergencyPhone, setEditEmergencyPhone] = useState("");
+  const [editRut, setEditRut] = useState("");
+  const [editPhone, setEditPhone] = useState("");
   const [blockModalOpen, setBlockModalOpen] = useState(false);
   const [blockReasonInput, setBlockReasonInput] = useState("");
   const [blockError, setBlockError] = useState<string | null>(null);
@@ -64,10 +68,17 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
   }, [blockModalOpen, guestToEdit]);
 
   useEffect(() => {
+    if (guestToEdit) {
+      setEditRut(formatChileanRut(guestToEdit.rut ?? ""));
+      setEditPhone(formatChileanPhone(guestToEdit.phone ?? ""));
+    }
+  }, [guestToEdit?.id, guestToEdit?.rut, guestToEdit?.phone]);
+
+  useEffect(() => {
     if (guestToEdit?.emergencyContact) {
       const parts = guestToEdit.emergencyContact.split(" · ");
       setEditEmergencyName(parts[0]?.trim() ?? "");
-      setEditEmergencyPhone(parts[1]?.trim() ?? "");
+      setEditEmergencyPhone(formatChileanPhone(parts[1]?.trim() ?? ""));
       setShowEditEmergencyContact(true);
     } else {
       setShowEditEmergencyContact(false);
@@ -277,14 +288,13 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
         createPortal(
           <div
             className="fixed inset-0 z-50 flex min-h-screen items-center justify-center bg-black/50 p-4"
-            onClick={() => setGuestToEdit(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="editar-huesped-title"
           >
-            <div
-              className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-[var(--foreground)]">Editar huésped</h3>
+                <h3 id="editar-huesped-title" className="text-lg font-semibold text-[var(--foreground)]">Editar huésped</h3>
                 <button
                   type="button"
                   onClick={() => setGuestToEdit(null)}
@@ -312,21 +322,25 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">RUT *</label>
+                  <label className="mb-1 block text-sm font-medium text-[var(--muted)]">RUT (opcional)</label>
                   <input
                     type="text"
                     name="rut"
-                    required
-                    defaultValue={guestToEdit.rut ?? ""}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={editRut}
+                    onChange={(e) => setEditRut(formatChileanRut(e.target.value))}
+                    placeholder="12.345.678-9"
+                    maxLength={RUT_FORMATTED_MAX_LENGTH}
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   />
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">Máx. 8 dígitos + dígito verificador (0-9 o K)</p>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Email *</label>
+                  <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Email (opcional)</label>
                   <input
                     type="email"
                     name="email"
-                    required
                     defaultValue={guestToEdit.email ?? ""}
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   />
@@ -337,9 +351,15 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
                     type="tel"
                     name="phone"
                     required
-                    defaultValue={guestToEdit.phone ?? ""}
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(formatChileanPhone(e.target.value))}
+                    placeholder="+56912345678"
+                    maxLength={PHONE_CHILE_MAX_LENGTH}
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   />
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">Máx. +56 9 dígitos (ej. +56912345678)</p>
                 </div>
                 <div>
                   {!showEditEmergencyContact ? (
@@ -379,11 +399,14 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
                         <input
                           type="tel"
                           name="emergencyContactPhone"
+                          inputMode="numeric"
                           value={editEmergencyPhone}
-                          onChange={(e) => setEditEmergencyPhone(e.target.value)}
-                          placeholder="+569 1234 5678"
+                          onChange={(e) => setEditEmergencyPhone(formatChileanPhone(e.target.value))}
+                          placeholder="+56912345678"
+                          maxLength={PHONE_CHILE_MAX_LENGTH}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                         />
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">Máx. +56 9 dígitos</p>
                       </div>
                     </div>
                   )}

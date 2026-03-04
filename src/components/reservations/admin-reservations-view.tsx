@@ -10,6 +10,7 @@ import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay,
 import { es } from "date-fns/locale";
 import { createReservationsBulk, updateReservationStatus, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
+import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { SyncMotopressButton } from "./sync-motopress-button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 
@@ -993,11 +994,10 @@ export function AdminReservationsView({
                         </>
                       )}
                       <div>
-                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">RUT *</label>
+                        <label className="mb-1 block text-sm font-medium text-[var(--muted)]">RUT (opcional)</label>
                         <input
                           type="text"
                           name="rut"
-                          required
                           inputMode="numeric"
                           autoComplete="off"
                           value={newGuestRut}
@@ -1007,11 +1007,10 @@ export function AdminReservationsView({
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Email *</label>
+                        <label className="mb-1 block text-sm font-medium text-[var(--muted)]">Email (opcional)</label>
                         <input
                           type="email"
                           name="email"
-                          required
                           placeholder="correo@ejemplo.com"
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                         />
@@ -1070,11 +1069,14 @@ export function AdminReservationsView({
                               <input
                                 type="tel"
                                 name="emergencyContactPhone"
+                                inputMode="numeric"
                                 value={emergencyContactPhone}
-                                onChange={(e) => setEmergencyContactPhone(e.target.value)}
-                                placeholder="+569 1234 5678"
+                                onChange={(e) => setEmergencyContactPhone(formatChileanPhone(e.target.value))}
+                                placeholder="+56912345678"
+                                maxLength={PHONE_CHILE_MAX_LENGTH}
                                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                               />
+                              <p className="mt-0.5 text-xs text-[var(--muted)]">Máx. +56 9 dígitos</p>
                             </div>
                           </div>
                         )}
