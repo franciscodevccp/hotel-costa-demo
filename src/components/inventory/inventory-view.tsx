@@ -19,6 +19,7 @@ import {
   deleteProduct as deleteProductAction,
   registerMovement as registerMovementAction,
   updateProductLastDates as updateProductLastDatesAction,
+  updateProductStock as updateProductStockAction,
 } from "@/app/dashboard/inventory/actions";
 import {
   getInvoiceByFolio,
@@ -125,6 +126,12 @@ export function InventoryView({ products: initialProducts }: { products: Product
   // Formulario movimiento
   const [movementQty, setMovementQty] = useState(0);
   const [movementFolio, setMovementFolio] = useState("");
+
+  // Editar stock (clic en celda)
+  const [editStock, setEditStock] = useState<InventoryProduct | null>(null);
+  const [editStockValue, setEditStockValue] = useState(0);
+  const [editStockSaving, setEditStockSaving] = useState(false);
+  const [editStockError, setEditStockError] = useState<string | null>(null);
 
   // Editar manualmente última entrada / última salida
   const [editLastDate, setEditLastDate] = useState<{
@@ -480,15 +487,22 @@ export function InventoryView({ products: initialProducts }: { products: Product
                   </td>
                   <td className="px-4 py-3 text-[var(--muted)]">{product.category}</td>
                   <td className="px-4 py-3 text-center">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditStock(product);
+                        setEditStockValue(product.stock);
+                        setEditStockError(null);
+                      }}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors hover:ring-2 hover:ring-[var(--primary)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] ${
                         product.stock < product.minStock
-                          ? "bg-[var(--destructive)]/10 text-[var(--destructive)]"
-                          : "bg-[var(--success)]/10 text-[var(--success)]"
+                          ? "bg-[var(--destructive)]/10 text-[var(--destructive)] hover:bg-[var(--destructive)]/20"
+                          : "bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20"
                       }`}
+                      title="Clic para editar stock"
                     >
                       {product.stock} {product.unit}
-                    </span>
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-center">
                     {product.folio ? (
@@ -792,6 +806,79 @@ export function InventoryView({ products: initialProducts }: { products: Product
           </div>
         </div>
       )}
+
+      {/* Modal editar stock */}
+      {editStock &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-stock-title"
+          >
+            <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+              <h3 id="edit-stock-title" className="text-lg font-semibold text-[var(--foreground)]">
+                Editar stock
+              </h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {editStock.name} ({editStock.unit})
+              </p>
+              <div className="mt-4">
+                <label htmlFor="edit-stock-input" className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Cantidad
+                </label>
+                <input
+                  id="edit-stock-input"
+                  type="number"
+                  min={0}
+                  value={editStockValue}
+                  onChange={(e) => setEditStockValue(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  autoFocus
+                />
+              </div>
+              {editStockError && (
+                <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
+                  {editStockError}
+                </p>
+              )}
+              <div className="mt-6 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => !editStockSaving && setEditStock(null)}
+                  disabled={editStockSaving}
+                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setEditStockError(null);
+                    setEditStockSaving(true);
+                    const res = await updateProductStockAction(editStock.id, editStockValue);
+                    setEditStockSaving(false);
+                    if (res?.error) {
+                      setEditStockError(res.error);
+                      return;
+                    }
+                    setEditStock(null);
+                    setProducts((prev) =>
+                      prev.map((p) => (p.id === editStock.id ? { ...p, stock: editStockValue } : p))
+                    );
+                    router.refresh();
+                  }}
+                  disabled={editStockSaving}
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {editStockSaving ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Modal editar fecha última entrada / última salida */}
       {editLastDate &&

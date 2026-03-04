@@ -5,6 +5,15 @@ const MOTOPRESS_URL = process.env.MOTOPRESS_URL;
 const CONSUMER_KEY = process.env.MOTOPRESS_CONSUMER_KEY;
 const CONSUMER_SECRET = process.env.MOTOPRESS_CONSUMER_SECRET;
 
+/** Días hacia atrás desde hoy: solo se sincronizan reservas con check-out >= (hoy - SYNC_DAYS). 0 = sin filtro (todas). */
+const SYNC_DAYS = (() => {
+  const raw = process.env.MOTOPRESS_SYNC_DAYS;
+  if (raw === undefined || raw === "") return 90;
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 0) return 90;
+  return n;
+})();
+
 function getAuthHeader(): string {
   if (!CONSUMER_KEY || !CONSUMER_SECRET) {
     throw new Error("MOTOPRESS_CONSUMER_KEY y MOTOPRESS_CONSUMER_SECRET son obligatorios");
@@ -37,7 +46,7 @@ async function fetchMotopressBookings(): Promise<MotopressBooking[]> {
   if (!MOTOPRESS_URL) throw new Error("MOTOPRESS_URL no está configurado");
   const authHeader = getAuthHeader();
   const response = await fetch(
-    `${MOTOPRESS_URL.replace(/\/$/, "")}/wp-json/mphb/v1/bookings?per_page=100`,
+    `${MOTOPRESS_URL.replace(/\/$/, "")}/wp-json/mphb/v1/bookings?per_page=100&orderby=id&order=desc`,
     {
       headers: {
         Authorization: `Basic ${authHeader}`,
@@ -70,6 +79,19 @@ function parseLocalDate(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
+/** Filtra reservas a solo las "recientes": check-out >= (hoy - SYNC_DAYS). Si SYNC_DAYS es 0, no filtra. */
+function filterRecentBookings(bookings: MotopressBooking[]): MotopressBooking[] {
+  if (SYNC_DAYS === 0) return bookings;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - SYNC_DAYS);
+  return bookings.filter((mp) => {
+    const checkOut = parseLocalDate(mp.check_out_date);
+    return checkOut >= cutoff;
+  });
+}
+
 async function getEstablishmentId(): Promise<string> {
   const fromEnv = process.env.MOTOPRESS_ESTABLISHMENT_ID;
   if (fromEnv) return fromEnv;
@@ -83,6 +105,12 @@ export type SyncMotopressResult = {
   reservationsFound: number;
   reservationsCreated: number;
   reservationsSkipped: number;
+  /** Reservas que ya estaban en el sistema (no se duplican, solo se actualiza estado si cambió). */
+  reservationsAlreadyInSystem?: number;
+  /** Reservas que el usuario eliminó y están en la lista de ignoradas (no se reimportan). */
+  reservationsIgnoredByUser?: number;
+  /** Reservas descartadas por el filtro de "solo recientes" (MOTOPRESS_SYNC_DAYS). */
+  reservationsFilteredOut?: number;
   error?: string;
 };
 
@@ -90,10 +118,20 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
   let reservationsFound = 0;
   let reservationsCreated = 0;
   let reservationsSkipped = 0;
+  let reservationsAlreadyInSystem = 0;
+  let reservationsIgnoredByUser = 0;
 
   try {
     const establishmentId = await getEstablishmentId();
-    const mpBookings = await fetchMotopressBookings();
+    const [mpBookingsRaw, ignoredMotopressIds] = await Promise.all([
+      fetchMotopressBookings(),
+      prisma.motopressIgnoredBooking.findMany({
+        where: { establishmentId },
+        select: { motopressId: true },
+      }).then((rows) => new Set(rows.map((r) => r.motopressId))),
+    ]);
+    const mpBookings = filterRecentBookings(mpBookingsRaw);
+    const reservationsFilteredOut = mpBookingsRaw.length - mpBookings.length;
     reservationsFound = mpBookings.length;
 
     for (const mp of mpBookings) {
@@ -104,6 +142,7 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
       });
 
       if (existing) {
+        reservationsAlreadyInSystem++;
         const newStatus = mapStatus(mp.status);
         if (existing.status !== newStatus) {
           await prisma.reservation.update({
@@ -111,6 +150,12 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
             data: { status: newStatus, syncedAt: new Date() },
           });
         }
+        continue;
+      }
+
+      // No reimportar reservas que el usuario eliminó y no quiere volver a ver
+      if (ignoredMotopressIds.has(motopressIdStr)) {
+        reservationsIgnoredByUser++;
         continue;
       }
 
@@ -192,6 +237,9 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
       reservationsFound,
       reservationsCreated,
       reservationsSkipped,
+      ...(reservationsAlreadyInSystem > 0 && { reservationsAlreadyInSystem }),
+      ...(reservationsIgnoredByUser > 0 && { reservationsIgnoredByUser }),
+      ...(reservationsFilteredOut > 0 && { reservationsFilteredOut }),
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

@@ -16,10 +16,18 @@ export function SyncMotopressButton() {
     try {
       const result = await syncMotopressReservations();
       if (result.success) {
-        setMessage(
-          `${result.reservationsCreated} nueva(s) de ${result.reservationsFound} encontrada(s)` +
-            (result.reservationsSkipped > 0 ? ` (${result.reservationsSkipped} omitidas sin habitación mapeada)` : "")
-        );
+        let msg = `${result.reservationsCreated} nueva(s) de ${result.reservationsFound} reciente(s)`;
+        if (result.reservationsAlreadyInSystem && result.reservationsAlreadyInSystem > 0) {
+          msg += ` (${result.reservationsAlreadyInSystem} ya en el sistema, no se duplican)`;
+        }
+        if (result.reservationsIgnoredByUser && result.reservationsIgnoredByUser > 0) {
+          msg += ` · ${result.reservationsIgnoredByUser} omitida(s) (eliminadas por usted antes)`;
+        }
+        if (result.reservationsSkipped > 0) msg += ` · ${result.reservationsSkipped} sin habitación mapeada`;
+        if (result.reservationsFilteredOut && result.reservationsFilteredOut > 0) {
+          msg += ` · ${result.reservationsFilteredOut} antigua(s) no sincronizadas`;
+        }
+        setMessage(msg);
         router.refresh();
       } else {
         setMessage(`Error: ${result.error}`);

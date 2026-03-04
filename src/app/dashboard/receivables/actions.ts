@@ -17,8 +17,12 @@ export async function createReceivable(
 
   const debtorName = formData.get("debtorName")?.toString()?.trim();
   const amountStr = formData.get("amount")?.toString();
+  const paymentTypeRaw = formData.get("paymentType")?.toString() || "SINGLE";
+  const paymentType = paymentTypeRaw === "RECURRING" ? "RECURRING" : "SINGLE";
   const entryDateStr = formData.get("entryDate")?.toString() || null;
   const dueDateStr = formData.get("dueDate")?.toString() || null;
+  const firstDueDateStr = formData.get("firstDueDate")?.toString() || null;
+  const intervalDaysStr = formData.get("intervalDays")?.toString() || null;
   const invoiceNumber = formData.get("invoiceNumber")?.toString()?.trim() || null;
   const notes = formData.get("notes")?.toString()?.trim() || null;
 
@@ -32,7 +36,14 @@ export async function createReceivable(
     return Number.isNaN(dte.getTime()) ? null : dte;
   };
   const entryDate = entryDateStr ? parseDate(entryDateStr) : null;
-  const dueDate = dueDateStr ? parseDate(dueDateStr) : null;
+  let dueDate: Date | null = dueDateStr ? parseDate(dueDateStr) : null;
+  const firstDueDate = firstDueDateStr ? parseDate(firstDueDateStr) : null;
+  const intervalDays = intervalDaysStr ? parseInt(intervalDaysStr, 10) : null;
+  if (paymentType === "RECURRING") {
+    if (!firstDueDate) return { error: "Indique la fecha de pago inicial" };
+    if (!intervalDays || intervalDays < 1) return { error: "Indique cada cuántos días se paga (mínimo 1)" };
+    dueDate = firstDueDate;
+  }
 
   try {
     await prisma.receivable.create({
@@ -40,8 +51,11 @@ export async function createReceivable(
         establishmentId: session.user.establishmentId,
         debtorName,
         amount,
+        paymentType,
         entryDate,
         dueDate,
+        firstDueDate: paymentType === "RECURRING" ? firstDueDate : null,
+        intervalDays: paymentType === "RECURRING" && intervalDays != null ? intervalDays : null,
         invoiceNumber,
         notes,
       },
@@ -67,8 +81,12 @@ export async function updateReceivable(
 
   const debtorName = formData.get("debtorName")?.toString()?.trim();
   const amountStr = formData.get("amount")?.toString();
+  const paymentTypeRaw = formData.get("paymentType")?.toString() || "SINGLE";
+  const paymentType = paymentTypeRaw === "RECURRING" ? "RECURRING" : "SINGLE";
   const entryDateStr = formData.get("entryDate")?.toString() || null;
   const dueDateStr = formData.get("dueDate")?.toString() || null;
+  const firstDueDateStr = formData.get("firstDueDate")?.toString() || null;
+  const intervalDaysStr = formData.get("intervalDays")?.toString() || null;
   const invoiceNumber = formData.get("invoiceNumber")?.toString()?.trim() || null;
   const notes = formData.get("notes")?.toString()?.trim() || null;
 
@@ -82,12 +100,29 @@ export async function updateReceivable(
     return Number.isNaN(dte.getTime()) ? null : dte;
   };
   const entryDate = entryDateStr ? parseDate(entryDateStr) : null;
-  const dueDate = dueDateStr ? parseDate(dueDateStr) : null;
+  let dueDate: Date | null = dueDateStr ? parseDate(dueDateStr) : null;
+  const firstDueDate = firstDueDateStr ? parseDate(firstDueDateStr) : null;
+  const intervalDays = intervalDaysStr ? parseInt(intervalDaysStr, 10) : null;
+  if (paymentType === "RECURRING") {
+    if (!firstDueDate) return { error: "Indique la fecha de pago inicial" };
+    if (!intervalDays || intervalDays < 1) return { error: "Indique cada cuántos días se paga (mínimo 1)" };
+    dueDate = firstDueDate;
+  }
 
   try {
     const updated = await prisma.receivable.updateMany({
       where: { id, establishmentId: session.user.establishmentId },
-      data: { debtorName, amount, entryDate, dueDate, invoiceNumber, notes },
+      data: {
+        debtorName,
+        amount,
+        paymentType,
+        entryDate,
+        dueDate,
+        firstDueDate: paymentType === "RECURRING" ? firstDueDate : null,
+        intervalDays: paymentType === "RECURRING" && intervalDays != null ? intervalDays : null,
+        invoiceNumber,
+        notes,
+      },
     });
     if (updated.count === 0) return { error: "Cuenta por cobrar no encontrada" };
     revalidatePath("/dashboard/receivables");

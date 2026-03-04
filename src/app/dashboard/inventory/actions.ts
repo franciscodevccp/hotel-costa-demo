@@ -81,6 +81,36 @@ export async function registerMovement(
   return {};
 }
 
+export type UpdateStockState = { error?: string };
+
+/** Actualiza el stock del producto directamente (ajuste manual). */
+export async function updateProductStock(
+  productId: string,
+  stock: number
+): Promise<UpdateStockState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  const qty = Math.floor(Number(stock));
+  if (qty < 0) return { error: "El stock no puede ser negativo" };
+
+  const product = await prisma.inventoryProduct.findFirst({
+    where: { id: productId, establishmentId: session.user.establishmentId },
+    select: { id: true },
+  });
+  if (!product) return { error: "Producto no encontrado" };
+
+  await prisma.inventoryProduct.update({
+    where: { id: product.id },
+    data: { stock: qty },
+  });
+
+  revalidatePath("/dashboard/inventory");
+  return {};
+}
+
 export type UpdateLastDatesState = { error?: string };
 
 /** Actualiza manualmente la fecha de última entrada y/o última salida del producto (ej. según facturas). */

@@ -32,6 +32,7 @@ model Establishment {
   invoices     Invoice[]
   receivables  Receivable[]
   payables     Payable[]
+  motopressIgnoredBookings MotopressIgnoredBooking[]
 }
 
 // ─── User ─────────────────────────────────────────────────────────────────
@@ -357,6 +358,11 @@ enum InvoiceType {
 
 
 // ─── Por cobrar (cuentas por cobrar manuales, no ligadas a reservas) ─────────
+enum ReceivablePaymentType {
+  SINGLE   // Pago único: una sola fecha de vencimiento (opcional)
+  RECURRING // Pago mensual/recurrente: fecha inicial + cada X días
+}
+
 model Receivable {
   id              String    @id @default(cuid())
   establishmentId String
@@ -364,10 +370,16 @@ model Receivable {
   debtorName      String
   /// Monto total adeudado (CLP)
   amount          Int
+  /// Tipo: pago único (sin mensualidad) o recurrente (con fecha inicial e intervalo)
+  paymentType     ReceivablePaymentType @default(SINGLE)
   /// Fecha de ingreso (cuando se registró la deuda)
   entryDate       DateTime?
-  /// Fecha de vencimiento / pago acordada
+  /// Fecha de vencimiento (solo para SINGLE). Para RECURRING se calcula el próximo desde firstDueDate + intervalDays
   dueDate         DateTime?
+  /// Fecha de pago inicial (solo RECURRING): desde cuándo empieza el ciclo
+  firstDueDate    DateTime?
+  /// Cada cuántos días se paga (solo RECURRING): intervalo en días
+  intervalDays    Int?
   /// Número de factura u orden de compra
   invoiceNumber   String?
   notes           String?
@@ -395,6 +407,11 @@ model ReceivablePayment {
 }
 
 // ─── Por pagar (cuentas por pagar manuales: a quién le debemos) ─────────────
+enum PayablePaymentType {
+  SINGLE    // Pago único: una sola fecha de vencimiento (opcional)
+  RECURRING // Pago mensual/recurrente: fecha inicial + cada X días
+}
+
 model Payable {
   id              String    @id @default(cuid())
   establishmentId String
@@ -402,8 +419,16 @@ model Payable {
   creditorName    String
   /// Monto total a pagar (CLP)
   amount          Int
+  /// Tipo: pago único (sin mensualidad) o recurrente (con fecha inicial e intervalo)
+  paymentType     PayablePaymentType @default(SINGLE)
+  /// Fecha de ingreso (cuando se registró la deuda)
   entryDate       DateTime?
+  /// Fecha de vencimiento (solo para SINGLE). Para RECURRING se calcula el próximo desde firstDueDate + intervalDays
   dueDate         DateTime?
+  /// Fecha de pago inicial (solo RECURRING): desde cuándo empieza el ciclo
+  firstDueDate    DateTime?
+  /// Cada cuántos días se paga (solo RECURRING): intervalo en días
+  intervalDays    Int?
   invoiceNumber   String?
   notes           String?
   createdAt       DateTime  @default(now())
@@ -440,4 +465,17 @@ model SyncLog {
   createdAt          DateTime @default(now())
 
   @@index([source, createdAt])
+}
+
+// ─── Reservas de MotoPress que el usuario eliminó y no quiere volver a ver al sincronizar
+model MotopressIgnoredBooking {
+  id              String   @id @default(cuid())
+  establishmentId String
+  motopressId     String   // ID de la reserva en MotoPress
+  createdAt       DateTime @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([establishmentId, motopressId])
+  @@index([establishmentId])
 }

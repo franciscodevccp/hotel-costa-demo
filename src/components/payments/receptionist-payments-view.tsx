@@ -97,6 +97,7 @@ export function ReceptionistPaymentsView({
         room_number: pend.roomNumber,
         amount: 0,
         total_amount: pend.totalAmount,
+        reservation_paid_amount: 0,
         method: "cash",
         additional_methods: [],
         status: "pending",
@@ -146,6 +147,7 @@ export function ReceptionistPaymentsView({
       room_number: r.roomNumber,
       amount: 0,
       total_amount: r.totalAmount,
+      reservation_paid_amount: 0,
       method: "cash" as PaymentMethod,
       additional_methods: [],
       status: "pending" as PaymentStatus,
@@ -436,7 +438,7 @@ export function ReceptionistPaymentsView({
                       )}
                       {!p.isPendingOnly && p.total_amount != null && p.status === "partial" && (
                         <p className="text-xs text-[var(--warning)]">
-                          Total: {formatCLP(p.total_amount)} · Pendiente: {formatCLP(p.total_amount - p.amount)}
+                          Total: {formatCLP(p.total_amount)} · Pendiente: {formatCLP(p.total_amount - (p.reservation_paid_amount ?? p.amount))}
                         </p>
                       )}
                     </div>
@@ -573,7 +575,7 @@ export function ReceptionistPaymentsView({
                         <span>
                           {formatCLP(p.amount)}{" "}
                           <span className="text-[var(--muted)] font-normal">
-                            / {formatCLP(p.total_amount)} — Pendiente: {formatCLP(p.total_amount - p.amount)}
+                            / {formatCLP(p.total_amount)} — Pendiente: {formatCLP(p.total_amount - (p.reservation_paid_amount ?? p.amount))}
                           </span>
                         </span>
                       ) : (

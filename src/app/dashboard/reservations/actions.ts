@@ -555,6 +555,22 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
       if (deleted.count === 0) {
         throw new Error("Reserva no encontrada");
       }
+      // Guardar en lista de ignoradas para que al sincronizar de nuevo no vuelva a aparecer
+      if (reservation?.motopressId) {
+        await tx.motopressIgnoredBooking.upsert({
+          where: {
+            establishmentId_motopressId: {
+              establishmentId: session.user.establishmentId,
+              motopressId: reservation.motopressId,
+            },
+          },
+          create: {
+            establishmentId: session.user.establishmentId,
+            motopressId: reservation.motopressId,
+          },
+          update: {},
+        });
+      }
     });
     // No usar revalidatePath aquí: en producción puede disparar un re-render que falla.
     // El cliente hace router.refresh() y obtiene datos frescos del servidor.
@@ -566,7 +582,15 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
 }
 
 export type SyncMotopressState =
-  | { success: true; reservationsFound: number; reservationsCreated: number; reservationsSkipped: number }
+  | {
+      success: true;
+      reservationsFound: number;
+      reservationsCreated: number;
+      reservationsSkipped: number;
+      reservationsAlreadyInSystem?: number;
+      reservationsIgnoredByUser?: number;
+      reservationsFilteredOut?: number;
+    }
   | { success: false; error: string };
 
 export async function syncMotopressReservations(): Promise<SyncMotopressState> {
@@ -585,6 +609,9 @@ export async function syncMotopressReservations(): Promise<SyncMotopressState> {
       reservationsFound: result.reservationsFound,
       reservationsCreated: result.reservationsCreated,
       reservationsSkipped: result.reservationsSkipped,
+      ...(result.reservationsAlreadyInSystem != null && { reservationsAlreadyInSystem: result.reservationsAlreadyInSystem }),
+      ...(result.reservationsIgnoredByUser != null && { reservationsIgnoredByUser: result.reservationsIgnoredByUser }),
+      ...(result.reservationsFilteredOut != null && { reservationsFilteredOut: result.reservationsFilteredOut }),
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al sincronizar con MotoPress";

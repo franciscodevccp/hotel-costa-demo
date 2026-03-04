@@ -45,6 +45,12 @@ export async function getReservationsByGuestId(establishmentId: string, guestId:
 export async function getReservationById(establishmentId: string, reservationId: string) {
   return prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId },
-    include: { guest: true, room: true, payments: true, processedBy: { select: { id: true, fullName: true } } },
+    include: {
+      guest: true,
+      room: true,
+      payments: true,
+      processedBy: { select: { id: true, fullName: true } },
+      consumptions: { select: { amount: true } },
+    },
   });
 }

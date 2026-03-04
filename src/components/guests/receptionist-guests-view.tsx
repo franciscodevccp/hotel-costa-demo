@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Mail, Phone, MapPin, Bed, UserPlus, Lock, X, Calendar, Plus, Trash2 } from "lucide-react";
+import { Search, Mail, Phone, MapPin, Bed, UserPlus, Lock, X, Calendar, Plus, Trash2, User, Building2 } from "lucide-react";
 import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, deleteGuest, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
 
 type GuestRow = Awaited<ReturnType<typeof import("@/lib/queries/guests").getGuests>>[number];
@@ -21,6 +21,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
   const router = useRouter();
+  const [guestTypeTab, setGuestTypeTab] = useState<"person" | "company">("person");
   const [search, setSearch] = useState("");
   const [guestToEdit, setGuestToEdit] = useState<GuestRow | null>(null);
   const [guestHistory, setGuestHistory] = useState<GuestRow | null>(null);
@@ -80,12 +81,15 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
   const formatCLP = (amount: number) =>
     new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", minimumFractionDigits: 0 }).format(amount);
 
-  const filtered = guests.filter(
-    (g) =>
+  const filtered = guests.filter((g) => {
+    const matchType = guestTypeTab === "company" ? g.type === "COMPANY" : g.type === "PERSON";
+    if (!matchType) return false;
+    return (
       !search ||
       g.fullName.toLowerCase().includes(search.toLowerCase()) ||
       (g.email?.toLowerCase().includes(search.toLowerCase()))
-  );
+    );
+  });
   const activeCount = guests.filter((g) => !g.isBlacklisted).length;
   const blacklistedCount = guests.filter((g) => g.isBlacklisted).length;
 
@@ -117,6 +121,26 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
         </div>
       </div>
 
+      {/* Tabs Persona particular / Empresas */}
+      <div className="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-1">
+        <button
+          type="button"
+          onClick={() => setGuestTypeTab("person")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "person" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+        >
+          <User className="h-4 w-4" />
+          Persona particular
+        </button>
+        <button
+          type="button"
+          onClick={() => setGuestTypeTab("company")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "company" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+        >
+          <Building2 className="h-4 w-4" />
+          Empresas
+        </button>
+      </div>
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
         <input
@@ -131,7 +155,7 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
       <div className="space-y-3">
         {filtered.length === 0 ? (
           <p className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-[var(--muted)]">
-            No hay huéspedes que coincidan.
+            {guestTypeTab === "person" ? "No hay personas particulares que coincidan." : "No hay empresas que coincidan."}
           </p>
         ) : (
           filtered.map((guest) => (

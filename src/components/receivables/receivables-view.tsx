@@ -25,8 +25,11 @@ export type ReceivableRow = {
   id: string;
   debtorName: string;
   amount: number;
+  paymentType?: "SINGLE" | "RECURRING";
   entryDate: string | null;
   dueDate: string | null;
+  firstDueDate?: string | null;
+  intervalDays?: number | null;
   invoiceNumber?: string;
   notes?: string;
   paidAmount: number;
@@ -50,9 +53,10 @@ export function ReceivablesView({ receivables }: { receivables: ReceivableRow[] 
   const [paymentFor, setPaymentFor] = useState<ReceivableRow | null>(null);
   const [deleteItem, setDeleteItem] = useState<ReceivableRow | null>(null);
   const [createState, createAction] = useActionState(createReceivable, {});
+  const [createPaymentType, setCreatePaymentType] = useState<"SINGLE" | "RECURRING">("SINGLE");
   const [createAmount, setCreateAmount] = useState(0);
-  const [createEntryDate, setCreateEntryDate] = useState("");
-  const [createDueDate, setCreateDueDate] = useState("");
+  const [createFirstDueDate, setCreateFirstDueDate] = useState("");
+  const [createIntervalDays, setCreateIntervalDays] = useState<number>(30);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [paymentNotes, setPaymentNotes] = useState("");
@@ -70,20 +74,13 @@ export function ReceivablesView({ receivables }: { receivables: ReceivableRow[] 
   useEffect(() => {
     if (createState?.success) {
       setCreateOpen(false);
+      setCreatePaymentType("SINGLE");
       setCreateAmount(0);
-      setCreateEntryDate("");
-      setCreateDueDate("");
+      setCreateFirstDueDate("");
+      setCreateIntervalDays(30);
       router.refresh();
     }
   }, [createState?.success, router]);
-
-  const createDaysBetween = (() => {
-    if (!createEntryDate || !createDueDate) return null;
-    const from = new Date(createEntryDate + "T12:00:00");
-    const to = new Date(createDueDate + "T12:00:00");
-    const days = differenceInDays(to, from);
-    return days >= 0 ? days : null;
-  })();
 
   return (
     <div className="space-y-6">
@@ -170,7 +167,10 @@ export function ReceivablesView({ receivables }: { receivables: ReceivableRow[] 
                     <td className="px-4 py-3 text-[var(--muted)]">{r.entryDate ? formatDate(r.entryDate) : "—"}</td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {r.dueDate ? formatDate(r.dueDate) : "—"}
-                      {r.entryDate && r.dueDate && (() => {
+                      {r.paymentType === "RECURRING" && r.intervalDays != null && r.intervalDays > 0 && (
+                        <><br /><span className="text-xs text-[var(--primary)]">Cada {r.intervalDays} día{r.intervalDays !== 1 ? "s" : ""}</span></>
+                      )}
+                      {r.paymentType !== "RECURRING" && r.entryDate && r.dueDate && (() => {
                         const days = differenceInDays(new Date(r.dueDate + "T12:00:00"), new Date(r.entryDate + "T12:00:00"));
                         if (days >= 0) return <><br /><span className="text-xs text-[var(--primary)]">{days} día{days !== 1 ? "s" : ""}</span></>;
                         return null;
@@ -230,6 +230,29 @@ export function ReceivablesView({ receivables }: { receivables: ReceivableRow[] 
                 <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">{createState.error}</p>
               )}
               <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Tipo de pago *</label>
+                <div className="flex gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setCreatePaymentType("SINGLE")}
+                    className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${createPaymentType === "SINGLE" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                  >
+                    Pago único
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreatePaymentType("RECURRING")}
+                    className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${createPaymentType === "RECURRING" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                  >
+                    Pago mensual
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  {createPaymentType === "SINGLE" ? "Sin mensualidad; solo fecha de ingreso." : "Se configura fecha de pago inicial y cada cuántos días se paga."}
+                </p>
+                <input type="hidden" name="paymentType" value={createPaymentType} />
+              </div>
+              <div>
                 <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Quién nos debe (acreedor) *</label>
                 <input name="debtorName" required placeholder="Ej. Supermanejado la Fama" className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]" />
               </div>
@@ -245,32 +268,33 @@ export function ReceivablesView({ receivables }: { receivables: ReceivableRow[] 
                 />
                 <input type="hidden" name="amount" value={createAmount || ""} />
               </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Fecha de ingreso</label>
-                <DatePickerInput
-                  value={createEntryDate}
-                  onChange={setCreateEntryDate}
-                  placeholder="dd/mm/aaaa"
-                  aria-label="Fecha de ingreso"
-                  className="w-full"
-                />
-                <input type="hidden" name="entryDate" value={createEntryDate} />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Fecha de vencimiento</label>
-                <DatePickerInput
-                  value={createDueDate}
-                  onChange={setCreateDueDate}
-                  placeholder="dd/mm/aaaa"
-                  aria-label="Fecha de vencimiento"
-                  className="w-full"
-                />
-                <input type="hidden" name="dueDate" value={createDueDate} />
-              </div>
-              {createDaysBetween != null && (
-                <p className="rounded-lg border border-[var(--primary)]/20 bg-[var(--primary)]/5 px-3 py-2 text-sm font-medium text-[var(--primary)]">
-                  Quedan <strong>{createDaysBetween}</strong> día{createDaysBetween !== 1 ? "s" : ""} entre ingreso y vencimiento.
-                </p>
+              {createPaymentType === "RECURRING" && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Fecha de pago inicial *</label>
+                    <DatePickerInput
+                      value={createFirstDueDate}
+                      onChange={setCreateFirstDueDate}
+                      placeholder="dd/mm/aaaa"
+                      aria-label="Fecha de pago inicial"
+                      className="w-full"
+                    />
+                    <input type="hidden" name="firstDueDate" value={createFirstDueDate} />
+                    <input type="hidden" name="dueDate" value={createFirstDueDate} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Cada cuántos días se paga *</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={createIntervalDays}
+                      onChange={(e) => setCreateIntervalDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    />
+                    <input type="hidden" name="intervalDays" value={createIntervalDays} />
+                    <p className="mt-1 text-xs text-[var(--muted)]">Ej. 30 = mensual, 15 = quincenal</p>
+                  </div>
+                </>
               )}
               <div>
                 <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">N° factura / orden</label>
@@ -284,7 +308,11 @@ export function ReceivablesView({ receivables }: { receivables: ReceivableRow[] 
                 <button type="button" onClick={() => setCreateOpen(false)} className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)]">
                   Cancelar
                 </button>
-                <button type="submit" disabled={createAmount < 1} className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed">
+                <button
+                  type="submit"
+                  disabled={createAmount < 1 || (createPaymentType === "RECURRING" && (!createFirstDueDate || createIntervalDays < 1))}
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
                   Crear
                 </button>
               </div>
@@ -374,16 +402,10 @@ function EditModal({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [editPaymentType, setEditPaymentType] = useState<"SINGLE" | "RECURRING">(item.paymentType ?? "SINGLE");
   const [editAmount, setEditAmount] = useState(item.amount);
-  const [editEntryDate, setEditEntryDate] = useState(item.entryDate ?? "");
-  const [editDueDate, setEditDueDate] = useState(item.dueDate ?? "");
-  const editDaysBetween = (() => {
-    if (!editEntryDate || !editDueDate) return null;
-    const from = new Date(editEntryDate + "T12:00:00");
-    const to = new Date(editDueDate + "T12:00:00");
-    const days = differenceInDays(to, from);
-    return days >= 0 ? days : null;
-  })();
+  const [editFirstDueDate, setEditFirstDueDate] = useState(item.firstDueDate ?? "");
+  const [editIntervalDays, setEditIntervalDays] = useState<number>(item.intervalDays ?? 30);
   return (
     <ModalBackdrop onClose={onClose}>
       <form
@@ -403,6 +425,26 @@ function EditModal({
         <h3 className="text-lg font-semibold text-[var(--foreground)]">Editar cuenta por cobrar</h3>
         {error && <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">{error}</p>}
         <div>
+          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Tipo de pago *</label>
+          <div className="flex gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/50 p-1">
+            <button
+              type="button"
+              onClick={() => setEditPaymentType("SINGLE")}
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${editPaymentType === "SINGLE" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+            >
+              Pago único
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditPaymentType("RECURRING")}
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${editPaymentType === "RECURRING" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+            >
+              Pago mensual
+            </button>
+          </div>
+          <input type="hidden" name="paymentType" value={editPaymentType} />
+        </div>
+        <div>
           <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Quién nos debe *</label>
           <input name="debtorName" defaultValue={item.debtorName} required className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]" />
         </div>
@@ -417,32 +459,32 @@ function EditModal({
           />
           <input type="hidden" name="amount" value={editAmount || ""} />
         </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Fecha de ingreso</label>
-          <DatePickerInput
-            value={editEntryDate}
-            onChange={setEditEntryDate}
-            placeholder="dd/mm/aaaa"
-            aria-label="Fecha de ingreso"
-            className="w-full"
-          />
-          <input type="hidden" name="entryDate" value={editEntryDate} />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Fecha de vencimiento</label>
-          <DatePickerInput
-            value={editDueDate}
-            onChange={setEditDueDate}
-            placeholder="dd/mm/aaaa"
-            aria-label="Fecha de vencimiento"
-            className="w-full"
-          />
-          <input type="hidden" name="dueDate" value={editDueDate} />
-        </div>
-        {editDaysBetween != null && (
-          <p className="rounded-lg border border-[var(--primary)]/20 bg-[var(--primary)]/5 px-3 py-2 text-sm font-medium text-[var(--primary)]">
-            Quedan <strong>{editDaysBetween}</strong> día{editDaysBetween !== 1 ? "s" : ""} entre ingreso y vencimiento.
-          </p>
+        {editPaymentType === "RECURRING" && (
+          <>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Fecha de pago inicial *</label>
+              <DatePickerInput
+                value={editFirstDueDate}
+                onChange={setEditFirstDueDate}
+                placeholder="dd/mm/aaaa"
+                aria-label="Fecha de pago inicial"
+                className="w-full"
+              />
+              <input type="hidden" name="firstDueDate" value={editFirstDueDate} />
+              <input type="hidden" name="dueDate" value={editFirstDueDate} />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Cada cuántos días se paga *</label>
+              <input
+                type="number"
+                min={1}
+                name="intervalDays"
+                value={editIntervalDays}
+                onChange={(e) => setEditIntervalDays(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+              />
+            </div>
+          </>
         )}
         <div>
           <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">N° factura</label>
@@ -454,7 +496,13 @@ function EditModal({
         </div>
         <div className="flex gap-2 pt-2">
           <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium">Cancelar</button>
-          <button type="submit" disabled={loading || editAmount < 1} className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">Guardar</button>
+          <button
+            type="submit"
+            disabled={loading || editAmount < 1 || (editPaymentType === "RECURRING" && (!editFirstDueDate || editIntervalDays < 1))}
+            className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+          >
+            Guardar
+          </button>
         </div>
       </form>
     </ModalBackdrop>

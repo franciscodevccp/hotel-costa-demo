@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Users, Lock, X, Calendar, Plus, Trash2 } from "lucide-react";
+import { Search, Users, Lock, X, Calendar, Plus, Trash2, User, Building2 } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, deleteGuest, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
 
@@ -38,6 +38,7 @@ const statusLabels: Record<string, string> = {
 
 export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
   const router = useRouter();
+  const [guestTypeTab, setGuestTypeTab] = useState<"person" | "company">("person");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [guestToEdit, setGuestToEdit] = useState<GuestRow | null>(null);
@@ -96,6 +97,8 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
   }, [updateState?.success, router]);
 
   const filtered = guests.filter((g) => {
+    const matchType = guestTypeTab === "company" ? g.type === "COMPANY" : g.type === "PERSON";
+    if (!matchType) return false;
     const status = toStatus(g);
     const matchStatus = !statusFilter || status === statusFilter;
     const term = search.toLowerCase();
@@ -150,6 +153,26 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
         </div>
       </div>
 
+      {/* Tabs Persona particular / Empresas */}
+      <div className="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-1">
+        <button
+          type="button"
+          onClick={() => setGuestTypeTab("person")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "person" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+        >
+          <User className="h-4 w-4" />
+          Persona particular
+        </button>
+        <button
+          type="button"
+          onClick={() => setGuestTypeTab("company")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "company" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+        >
+          <Building2 className="h-4 w-4" />
+          Empresas
+        </button>
+      </div>
+
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
@@ -177,7 +200,7 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
       <div className="space-y-3">
         {filtered.length === 0 ? (
           <p className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-[var(--muted)]">
-            No hay huéspedes que coincidan con los filtros.
+            {guestTypeTab === "person" ? "No hay personas particulares que coincidan con los filtros." : "No hay empresas que coincidan con los filtros."}
           </p>
         ) : (
           filtered.map((guest) => {
