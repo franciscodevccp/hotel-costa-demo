@@ -248,33 +248,18 @@ export function AdminReportsView({
             value={`${ocupacionPromedio}%`}
             icon={BedDouble}
             description="Habitaciones ocupadas en promedio en el mes"
-            trend={
-              prevOcupacionPromedio > 0
-                ? { value: comparacionOcupacion, isPositive: comparacionOcupacion >= 0 }
-                : undefined
-            }
           />
           <StatCard
             title="Ingreso total"
             value={formatCLP(ingresoTotal)}
             icon={DollarSign}
             description="Total cobrado en el período"
-            trend={
-              prevTotal > 0
-                ? { value: comparacionMesAnterior, isPositive: comparacionMesAnterior >= 0 }
-                : undefined
-            }
           />
           <StatCard
             title="Noches vendidas"
             value={String(nightsSold)}
             icon={Moon}
             description="Noches-habitación vendidas en el mes"
-            trend={
-              prevNightsSold > 0
-                ? { value: comparacionNoches, isPositive: comparacionNoches >= 0 }
-                : undefined
-            }
           />
           <StatCard
             title="Reservas en el mes"
