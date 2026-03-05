@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "InvoiceType" ADD VALUE 'GUIA_DESPACHO';

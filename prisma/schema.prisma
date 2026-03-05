@@ -1,0 +1,483 @@
+// Hotel de la Costa - Sistema de gestión
+// Schema según instructivo v1.0
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Establishment ─────────────────────────────────────────────────────────
+model Establishment {
+  id         String   @id @default(cuid())
+  name       String   // "Hotel de la Costa"
+  address    String?
+  phone      String?
+  email      String?
+  logoUrl    String?
+  totalRooms Int      @default(22)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  users        User[]
+  rooms        Room[]
+  guests       Guest[]
+  reservations Reservation[]
+  payments     Payment[]
+  products     InventoryProduct[]
+  suppliers    Supplier[]
+  invoices     Invoice[]
+  receivables  Receivable[]
+  payables     Payable[]
+  motopressIgnoredBookings MotopressIgnoredBooking[]
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────
+model User {
+  id              String    @id @default(cuid())
+  establishmentId String
+  fullName        String
+  email           String    @unique
+  passwordHash    String    // bcrypt 12 rounds
+  role            UserRole  @default(RECEPTIONIST)
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  establishment     Establishment  @relation(fields: [establishmentId], references: [id])
+  payments          Payment[]      @relation("RegisteredBy")
+  processedReservations Reservation[] @relation("ProcessedBy")
+
+  @@index([establishmentId])
+}
+
+enum UserRole {
+  ADMIN
+  RECEPTIONIST
+}
+
+// ─── Room ──────────────────────────────────────────────────────────────────
+model Room {
+  id              String     @id @default(cuid())
+  establishmentId String
+  roomNumber      String
+  type            RoomType
+  pricePerNight   Int        // CLP sin decimales
+  status          RoomStatus @default(AVAILABLE)
+  floor           Int
+  hasPrivateBath  Boolean    @default(true)
+  maxGuests       Int        @default(2)
+  description     String?
+  notes           String?
+  externalId      String?     // ID en MotoPress (accommodation) para sincronización
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  reservations  Reservation[]
+
+  @@unique([establishmentId, roomNumber])
+  @@index([establishmentId, status])
+  @@index([externalId])
+}
+
+enum RoomType {
+  SINGLE
+  DOUBLE
+  TRIPLE
+  QUADRUPLE
+  QUINTUPLE
+  PROMOTIONAL
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+}
+
+// ─── Guest ────────────────────────────────────────────────────────────────
+enum GuestType {
+  PERSON      // Personas
+  CLUB        // Club
+  DELEGACION  // Delegaciones
+  COMPANY     // Legado: empresas (se muestra en Delegaciones)
+}
+
+model Guest {
+  id                String    @id @default(cuid())
+  establishmentId   String
+  type              GuestType @default(PERSON)  // Persona o Empresa (en pagos pendientes se muestran en secciones distintas)
+  fullName          String    // nombre de la persona o del contacto si es empresa
+  rut               String?   // RUT persona o representante
+  email             String?
+  phone             String?
+  emergencyContact  String?   // contacto de emergencia opcional (nombre y/o teléfono)
+  nationality       String?   @default("Chile")
+  notes             String?
+  isBlacklisted     Boolean   @default(false)
+  blockReason       String?   // motivo del bloqueo (por qué se bloqueó al huésped)
+  // Datos empresa (cuando type = COMPANY); se usan al crear reserva para aparecer en "Empresas" en pagos pendientes
+  companyName       String?
+  companyRut        String?
+  companyEmail      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  reservations  Reservation[]
+
+  @@index([establishmentId])
+  @@index([fullName])
+  @@index([type])
+}
+
+// ─── Reservation ───────────────────────────────────────────────────────────
+model Reservation {
+  id              String            @id @default(cuid())
+  establishmentId String
+  roomId          String
+  guestId         String
+  checkIn         DateTime
+  checkOut        DateTime
+  numGuests       Int               @default(1)
+  status          ReservationStatus @default(PENDING)
+  checkedInAt     DateTime?         // Hora en que se marcó check-in realizado
+  checkedOutAt    DateTime?         // Hora en que se marcó check-out realizado
+  totalAmount     Int               // total en CLP
+  source          ReservationSource @default(MANUAL)
+  motopressId     String?           @unique
+  companyName     String?
+  companyRut      String?
+  companyEmail    String?
+  paymentTermDays Int?
+  notes             String?
+  syncedAt          DateTime?         // Última sincronización desde MotoPress
+  /// Número de folio / tarjeta de ingreso (obligatorio al crear desde recepción)
+  folioNumber        String?
+  /// Recepcionista que gestiona la reserva (nombre ingresado por el trabajador)
+  processedByName   String?
+  /// [Legacy] ID del usuario que gestionó (si se usó selección por cuenta)
+  processedById     String?
+  /// URL de la foto de la tarjeta de ingreso firmada (se adjunta al hacer check-in)
+  entryCardImageUrl String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  room          Room          @relation(fields: [roomId], references: [id])
+  guest         Guest         @relation(fields: [guestId], references: [id])
+  processedBy   User?         @relation("ProcessedBy", fields: [processedById], references: [id])
+  payments      Payment[]
+  consumptions  Consumption[]
+
+  @@index([establishmentId, status])
+  @@index([roomId, checkIn, checkOut])
+  @@index([guestId])
+  @@index([checkIn])
+  @@index([checkOut])
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum ReservationSource {
+  MANUAL
+  MOTOPRESS
+  PHONE
+  WALKIN
+}
+
+// ─── Payment ───────────────────────────────────────────────────────────────
+model Payment {
+  id              String         @id @default(cuid())
+  establishmentId String
+  reservationId   String
+  registeredById  String
+  amount            Int               // monto CLP (puede acumular abono + resto)
+  method            PaymentMethod     // método del abono inicial
+  additionalMethods PaymentMethod[]   @default([]) // métodos usados en abonos posteriores (sin repetir el inicial)
+  status            PaymentStatus     @default(COMPLETED)
+  notes           String?
+  paidAt          DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+  /// Comprobante de pago (transferencia/débito/crédito) — legacy; usar receiptUrls
+  receiptUrl      String?
+  /// Todos los comprobantes (cada abono puede tener uno)
+  receiptUrls     String[]     @default([])
+  /// Por cada comprobante: url, monto y método (para mostrar correctamente en detalle)
+  receiptEntries  Json?        // [{ url, amount, method }]
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  reservation   Reservation   @relation(fields: [reservationId], references: [id])
+  registeredBy  User          @relation("RegisteredBy", fields: [registeredById], references: [id])
+
+  @@index([establishmentId, paidAt])
+  @@index([reservationId])
+}
+
+// ─── Consumo durante la estadía (tarjeta de consumo) ────────────────────────
+model Consumption {
+  id                String        @id @default(cuid())
+  reservationId     String
+  consumptionNumber String        // N° folio del consumo (ej. 001, 002)
+  description       String?       // ej. "Bebida", "Minibar"
+  amount            Int           // CLP
+  method            PaymentMethod
+  cardImageUrl      String?       // Foto de la tarjeta de consumo
+  createdAt         DateTime      @default(now())
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@index([reservationId])
+}
+
+enum PaymentMethod {
+  CASH
+  DEBIT
+  CREDIT
+  TRANSFER
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING   // Pendiente
+  PARTIAL   // Pago de abono
+  COMPLETED // Pago total
+  REFUNDED  // Reembolsado
+}
+
+// ─── InventoryProduct ─────────────────────────────────────────────────────
+model InventoryProduct {
+  id              String    @id @default(cuid())
+  establishmentId String
+  name            String
+  category        String    // "Aseo", "Ropa de cama", "Desayuno", etc.
+  stock           Int       @default(0)
+  minStock        Int       @default(5)
+  unit            String    // "unidad", "kg", "rollo", "litro"
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  /// Fecha manual de última entrada (ej. según factura). Si es null, se usa la del último movimiento.
+  lastEntryAt     DateTime?
+  /// Fecha manual de última salida. Si es null, se usa la del último movimiento.
+  lastExitAt      DateTime?
+
+  establishment Establishment       @relation(fields: [establishmentId], references: [id])
+  movements     InventoryMovement[]
+  invoiceItems  InvoiceItem[]
+
+  @@index([establishmentId])
+  @@index([establishmentId, category])
+}
+
+// ─── InventoryMovement ─────────────────────────────────────────────────────
+model InventoryMovement {
+  id        String       @id @default(cuid())
+  productId String
+  type      MovementType
+  quantity  Int
+  folio     String?
+  note      String?
+  createdAt DateTime     @default(now())
+
+  product InventoryProduct @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+enum MovementType {
+  ENTRY
+  EXIT
+}
+
+// ─── Supplier ───────────────────────────────────────────────────────────────
+model Supplier {
+  id              String   @id @default(cuid())
+  establishmentId String
+  name            String
+  rut             String?
+  phone           String?
+  email           String?
+  createdAt       DateTime @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  invoices      Invoice[]
+
+  @@index([establishmentId])
+}
+
+// ─── Invoice e InvoiceItem ──────────────────────────────────────────────────
+model Invoice {
+  id              String      @id @default(cuid())
+  establishmentId String
+  supplierId      String?
+  folio           String      // "B-0001", "F-0002"
+  type            InvoiceType
+  date            DateTime
+  total           Int         // CLP
+  photoUrls       String[]    // hasta 5 fotos del documento
+  syncedInventory Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  items         InvoiceItem[]
+
+  @@index([establishmentId])
+  @@index([folio])
+}
+
+model InvoiceItem {
+  id        String @id @default(cuid())
+  invoiceId String
+  productId String
+  quantity  Int
+  unitPrice Int?
+
+  invoice Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product InventoryProduct @relation(fields: [productId], references: [id])
+}
+
+enum InvoiceType {
+  BOLETA
+  FACTURA
+  GUIA_DESPACHO
+  COTIZACION
+}
+
+
+// ─── Por cobrar (cuentas por cobrar manuales, no ligadas a reservas) ─────────
+enum ReceivablePaymentType {
+  SINGLE   // Pago único: una sola fecha de vencimiento (opcional)
+  RECURRING // Pago mensual/recurrente: fecha inicial + cada X días
+}
+
+model Receivable {
+  id              String    @id @default(cuid())
+  establishmentId String
+  /// Quién nos debe (empresa o particular)
+  debtorName      String
+  /// Monto total adeudado (CLP)
+  amount          Int
+  /// Tipo: pago único (sin mensualidad) o recurrente (con fecha inicial e intervalo)
+  paymentType     ReceivablePaymentType @default(SINGLE)
+  /// Fecha de ingreso (cuando se registró la deuda)
+  entryDate       DateTime?
+  /// Fecha de vencimiento (solo para SINGLE). Para RECURRING se calcula el próximo desde firstDueDate + intervalDays
+  dueDate         DateTime?
+  /// Fecha de pago inicial (solo RECURRING): desde cuándo empieza el ciclo
+  firstDueDate    DateTime?
+  /// Cada cuántos días se paga (solo RECURRING): intervalo en días
+  intervalDays    Int?
+  /// Número de factura u orden de compra
+  invoiceNumber   String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  establishment Establishment      @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  payments      ReceivablePayment[]
+
+  @@index([establishmentId])
+  @@index([establishmentId, dueDate])
+}
+
+model ReceivablePayment {
+  id           String   @id @default(cuid())
+  receivableId String
+  /// Monto cobrado (CLP)
+  amount       Int
+  paidAt       DateTime @default(now())
+  notes        String?
+
+  receivable Receivable @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+
+  @@index([receivableId])
+}
+
+// ─── Por pagar (cuentas por pagar manuales: a quién le debemos) ─────────────
+enum PayablePaymentType {
+  SINGLE    // Pago único: una sola fecha de vencimiento (opcional)
+  RECURRING // Pago mensual/recurrente: fecha inicial + cada X días
+}
+
+model Payable {
+  id              String    @id @default(cuid())
+  establishmentId String
+  /// A quién le debemos (proveedor o acreedor)
+  creditorName    String
+  /// Monto total a pagar (CLP)
+  amount          Int
+  /// Tipo: pago único (sin mensualidad) o recurrente (con fecha inicial e intervalo)
+  paymentType     PayablePaymentType @default(SINGLE)
+  /// Fecha de ingreso (cuando se registró la deuda)
+  entryDate       DateTime?
+  /// Fecha de vencimiento (solo para SINGLE). Para RECURRING se calcula el próximo desde firstDueDate + intervalDays
+  dueDate         DateTime?
+  /// Fecha de pago inicial (solo RECURRING): desde cuándo empieza el ciclo
+  firstDueDate    DateTime?
+  /// Cada cuántos días se paga (solo RECURRING): intervalo en días
+  intervalDays    Int?
+  invoiceNumber   String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  establishment Establishment   @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  payments       PayablePayment[]
+
+  @@index([establishmentId])
+  @@index([establishmentId, dueDate])
+}
+
+model PayablePayment {
+  id          String   @id @default(cuid())
+  payableId   String
+  amount      Int      // Monto pagado (CLP)
+  paidAt      DateTime @default(now())
+  notes       String?
+
+  payable Payable @relation(fields: [payableId], references: [id], onDelete: Cascade)
+
+  @@index([payableId])
+}
+
+// ─── SyncLog (MotoPress / integraciones) ────────────────────────────────────
+model SyncLog {
+  id                 Int      @id @default(autoincrement())
+  source             String   // "motopress"
+  status             String   // "success" | "error"
+  message            String?
+  reservationsFound  Int      @default(0)
+  reservationsCreated Int     @default(0)
+  reservationsSkipped Int     @default(0)
+  createdAt          DateTime @default(now())
+
+  @@index([source, createdAt])
+}
+
+// ─── Reservas de MotoPress que el usuario eliminó y no quiere volver a ver al sincronizar
+model MotopressIgnoredBooking {
+  id              String   @id @default(cuid())
+  establishmentId String
+  motopressId     String   // ID de la reserva en MotoPress
+  createdAt       DateTime @default(now())
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([establishmentId, motopressId])
+  @@index([establishmentId])
+}

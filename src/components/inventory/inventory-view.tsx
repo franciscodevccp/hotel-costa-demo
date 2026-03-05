@@ -1,0 +1,1144 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Package,
+  Plus,
+  Search,
+  AlertTriangle,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  ArrowUp,
+  ArrowDown,
+  X,
+  FileText,
+  Trash2,
+} from "lucide-react";
+import {
+  deleteProduct as deleteProductAction,
+  registerMovement as registerMovementAction,
+  updateProductLastDates as updateProductLastDatesAction,
+  updateProductStock as updateProductStockAction,
+} from "@/app/dashboard/inventory/actions";
+import {
+  getInvoiceByFolio,
+  type InvoiceByFolio,
+} from "@/app/dashboard/invoices/actions";
+import { CustomSelect } from "@/components/ui/custom-select";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { createPortal } from "react-dom";
+import { format } from "date-fns";
+
+export interface InventoryProduct {
+  id: string;
+  name: string;
+  category: string;
+  stock: number;
+  minStock: number;
+  unit: string;
+  entradas?: number;
+  salidas?: number;
+  folio?: string;
+  lastEntryAt?: Date | string | null;
+  lastExitAt?: Date | string | null;
+}
+
+type SortColumn = "product" | "category" | "stock" | "folio" | "entradas" | "salidas" | "lastEntryAt" | "lastExitAt";
+
+/** Normaliza texto para búsqueda: minúsculas y sin tildes (azúcar → azucar) */
+function normalizeForSearch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+type ProductRow = Awaited<ReturnType<typeof import("@/lib/queries/inventory").getProducts>>[number];
+
+function toInventoryProduct(p: ProductRow): InventoryProduct {
+  return {
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    stock: p.stock,
+    minStock: p.minStock,
+    unit: p.unit,
+    entradas: p.entradas ?? 0,
+    salidas: p.salidas ?? 0,
+    folio: p.folio ?? undefined,
+    lastEntryAt: p.lastEntryAt ?? undefined,
+    lastExitAt: p.lastExitAt ?? undefined,
+  };
+}
+
+/** Formato solo fecha para Últ. entrada / Últ. salida (ej: 28 feb 2026), sin hora */
+function formatLastEntryExitDate(date: Date | string | null | undefined): string {
+  if (date == null) return "—";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("es-CL", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** Fecha a yyyy-MM-dd para el date picker */
+function toDateInputValue(date: Date | string | null | undefined): string {
+  if (date == null) return "";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "";
+  return format(d, "yyyy-MM-dd");
+}
+
+export function InventoryView({ products: initialProducts }: { products: ProductRow[] }) {
+  const router = useRouter();
+  const [products, setProducts] = useState<InventoryProduct[]>(() => initialProducts.map(toInventoryProduct));
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showMovementModal, setShowMovementModal] = useState<{
+    product: InventoryProduct;
+    type: "entrada" | "salida";
+  } | null>(null);
+  const [productToDelete, setProductToDelete] = useState<InventoryProduct | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [movementSubmitting, setMovementSubmitting] = useState(false);
+  const [movementError, setMovementError] = useState<string | null>(null);
+  const [invoicePreview, setInvoicePreview] = useState<InvoiceByFolio | null>(null);
+  const [invoicePreviewFolio, setInvoicePreviewFolio] = useState<string | null>(null);
+  const [loadingInvoicePreview, setLoadingInvoicePreview] = useState(false);
+  const [invoicePhotoPreviewUrl, setInvoicePhotoPreviewUrl] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortColumn>("product");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [search, setSearch] = useState("");
+  const [showLowStockAlert, setShowLowStockAlert] = useState(true);
+
+  // Formulario agregar producto
+  const [newProduct, setNewProduct] = useState({
+    name: "",
+    category: "Aseo",
+    stock: 0,
+    minStock: 5,
+    unit: "unidad",
+  });
+
+  // Formulario movimiento
+  const [movementQty, setMovementQty] = useState(0);
+  const [movementFolio, setMovementFolio] = useState("");
+
+  // Editar stock (clic en celda)
+  const [editStock, setEditStock] = useState<InventoryProduct | null>(null);
+  const [editStockValue, setEditStockValue] = useState(0);
+  const [editStockSaving, setEditStockSaving] = useState(false);
+  const [editStockError, setEditStockError] = useState<string | null>(null);
+
+  // Editar manualmente última entrada / última salida
+  const [editLastDate, setEditLastDate] = useState<{
+    product: InventoryProduct;
+    field: "lastEntryAt" | "lastExitAt";
+  } | null>(null);
+  const [editLastDateValue, setEditLastDateValue] = useState("");
+  const [editLastDateSaving, setEditLastDateSaving] = useState(false);
+  const [editLastDateError, setEditLastDateError] = useState<string | null>(null);
+
+  const lowStockProducts = products.filter((p) => p.stock < p.minStock);
+  const hasLowStock = lowStockProducts.length > 0;
+
+  // Sincronizar lista cuando el servidor devuelve nuevos datos (p. ej. después de registrar movimiento)
+  useEffect(() => {
+    setProducts(initialProducts.map(toInventoryProduct));
+  }, [initialProducts]);
+
+  // Alerta de bajo stock al entrar (se muestra al montar el componente)
+  useEffect(() => {
+    if (hasLowStock) {
+      setShowLowStockAlert(true);
+    }
+  }, [hasLowStock]);
+
+  // Filtrar y ordenar productos
+  let filtered = [...products];
+  if (search) {
+    const q = normalizeForSearch(search);
+    filtered = filtered.filter(
+      (p) =>
+        normalizeForSearch(p.name).includes(q) ||
+        normalizeForSearch(p.category).includes(q)
+    );
+  }
+
+  /** Para ordenar por fecha: null/undefined = 0 (quedan al final con desc = más reciente primero) */
+  const dateToNum = (d: Date | string | null | undefined): number =>
+    d == null ? 0 : (typeof d === "string" ? new Date(d).getTime() : d.getTime());
+
+  // Ordenar: producto y categoría A-Z (asc); stock, folio, entradas, salidas, últ. entrada/salida por defecto desc
+  const defaultDesc = ["stock", "folio", "entradas", "salidas", "lastEntryAt", "lastExitAt"].includes(sortBy);
+  const order = sortOrder === "asc" ? 1 : -1;
+  filtered = [...filtered].sort((a, b) => {
+    if (sortBy === "product") {
+      return order * (a.name.localeCompare(b.name, "es"));
+    }
+    if (sortBy === "category") {
+      return order * (a.category.localeCompare(b.category, "es"));
+    }
+    if (sortBy === "stock") return order * (a.stock - b.stock);
+    if (sortBy === "entradas") return order * ((a.entradas ?? 0) - (b.entradas ?? 0));
+    if (sortBy === "salidas") return order * ((a.salidas ?? 0) - (b.salidas ?? 0));
+    if (sortBy === "folio") {
+      const fa = a.folio ?? "";
+      const fb = b.folio ?? "";
+      return order * fa.localeCompare(fb, "es");
+    }
+    if (sortBy === "lastEntryAt") return order * (dateToNum(a.lastEntryAt) - dateToNum(b.lastEntryAt));
+    if (sortBy === "lastExitAt") return order * (dateToNum(a.lastExitAt) - dateToNum(b.lastExitAt));
+    return 0;
+  });
+
+  const handleSort = (column: SortColumn) => {
+    const defaultDesc = ["stock", "folio", "entradas", "salidas", "lastEntryAt", "lastExitAt"].includes(column);
+    if (sortBy === column) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(column);
+      setSortOrder(defaultDesc ? "desc" : "asc");
+    }
+  };
+
+  const handleAddProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProduct.name.trim()) return;
+    const product: InventoryProduct = {
+      id: String(Date.now()),
+      name: newProduct.name.trim(),
+      category: newProduct.category,
+      stock: newProduct.stock,
+      minStock: newProduct.minStock,
+      unit: newProduct.unit,
+      entradas: newProduct.stock,
+      salidas: 0,
+      folio: undefined,
+    };
+    setProducts((prev) => [...prev, product]);
+    setNewProduct({ name: "", category: "Aseo", stock: 0, minStock: 5, unit: "unidad" });
+    setShowAddProduct(false);
+  };
+
+  const handleMovement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showMovementModal || movementQty <= 0) return;
+    const { product, type } = showMovementModal;
+    if (type === "salida" && movementQty > product.stock) return;
+    setMovementError(null);
+    setMovementSubmitting(true);
+    const result = await registerMovementAction(
+      product.id,
+      type,
+      movementQty,
+      movementFolio.trim() || undefined
+    );
+    setMovementSubmitting(false);
+    if (result.error) {
+      setMovementError(result.error);
+      return;
+    }
+    setShowMovementModal(null);
+    setMovementQty(0);
+    setMovementFolio("");
+    router.refresh();
+  };
+
+  const handleFolioClick = async (folio: string) => {
+    setInvoicePreviewFolio(folio);
+    setLoadingInvoicePreview(true);
+    setInvoicePreview(null);
+    const data = await getInvoiceByFolio(folio);
+    setLoadingInvoicePreview(false);
+    setInvoicePreview(data ?? null);
+  };
+
+  const closeInvoicePreview = () => {
+    setInvoicePreview(null);
+    setInvoicePreviewFolio(null);
+    setInvoicePhotoPreviewUrl(null);
+  };
+
+  const formatCLP = (amount: number) =>
+    new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(amount);
+
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const result = await deleteProductAction(productToDelete.id);
+    setDeleting(false);
+    if (result.error) {
+      setDeleteError(result.error);
+      return;
+    }
+    setProducts((prev) => prev.filter((p) => p.id !== productToDelete.id));
+    setProductToDelete(null);
+    router.refresh();
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Alerta de bajo stock */}
+      {hasLowStock && showLowStockAlert && (
+        <div
+          role="alert"
+          className="relative overflow-hidden rounded-xl border border-[var(--warning)]/30 bg-gradient-to-br from-[var(--warning)]/5 via-[var(--card)] to-[var(--warning)]/5 p-5 shadow-sm"
+        >
+          <div className="flex items-start gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--warning)]/15 shadow-inner">
+              <AlertTriangle className="h-5 w-5 text-[var(--warning)]" strokeWidth={2.5} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-[var(--foreground)]">
+                Productos con stock bajo
+              </p>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Los siguientes productos están por debajo del mínimo recomendado:
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {lowStockProducts.map((p) => (
+                  <span
+                    key={p.id}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--warning)]/25 bg-[var(--background)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-sm"
+                  >
+                    <Package className="h-3.5 w-3.5 text-[var(--warning)]" />
+                    {p.name}
+                    <span className="rounded bg-[var(--warning)]/15 px-1.5 py-0.5 font-semibold text-[var(--warning)]">
+                      {p.stock} {p.unit}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowLowStockAlert(false)}
+              className="rounded-lg p-2 text-[var(--muted)] transition-colors hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+              aria-label="Cerrar alerta"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">
+            Inventario
+          </h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Gestiona productos, entradas y salidas. Stock en tiempo real.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowAddProduct(true)}
+          className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto"
+        >
+          <Plus className="h-4 w-4" />
+          Agregar producto
+        </button>
+      </div>
+
+      {/* Buscador */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
+        <input
+          type="text"
+          placeholder="Buscar por nombre o categoría..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+        />
+      </div>
+
+      {/* Tabla de productos */}
+      <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-[var(--border)] bg-[var(--background)]">
+              {(
+                [
+                  {
+                    id: "product" as const,
+                    label: "Producto",
+                    hintAsc: "A-Z",
+                    hintDesc: "Z-A",
+                  },
+                  {
+                    id: "category" as const,
+                    label: "Categoría",
+                    hintAsc: "A-Z",
+                    hintDesc: "Z-A",
+                  },
+                  {
+                    id: "stock" as const,
+                    label: "Stock",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                  {
+                    id: "folio" as const,
+                    label: "Folio / Factura",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                  {
+                    id: "entradas" as const,
+                    label: "Entradas",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                  {
+                    id: "salidas" as const,
+                    label: "Salidas",
+                    hintAsc: "Menor",
+                    hintDesc: "Mayor",
+                  },
+                  {
+                    id: "lastEntryAt" as const,
+                    label: "Últ. entrada",
+                    hintAsc: "Más antiguo",
+                    hintDesc: "Más reciente",
+                  },
+                  {
+                    id: "lastExitAt" as const,
+                    label: "Últ. salida",
+                    hintAsc: "Más antiguo",
+                    hintDesc: "Más reciente",
+                  },
+                ] as const
+              ).map(({ id, label, hintAsc, hintDesc }) => {
+                const isActive = sortBy === id;
+                const isAsc = sortOrder === "asc";
+                const alignCenter = ["stock", "folio", "entradas", "salidas", "lastEntryAt", "lastExitAt"].includes(id);
+                return (
+                  <th
+                    key={id}
+                    className={`px-4 py-3 ${alignCenter ? "text-center" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSort(id)}
+                      aria-pressed={isActive}
+                      aria-label={`Ordenar por ${label}, ${isActive ? (isAsc ? "ascendente" : "descendente") : "clic para ordenar"}`}
+                      className={`
+                        inline-flex w-full min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium transition-colors whitespace-nowrap
+                        focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2 focus:ring-offset-[var(--background)]
+                        ${alignCenter ? "" : "justify-start text-left"}
+                        ${isActive ? "bg-[var(--primary)]/15 text-[var(--primary)]" : "text-[var(--foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"}
+                      `}
+                    >
+                      <span>{label}</span>
+                      {isActive ? (
+                        <span className="inline-flex items-center gap-0.5 shrink-0">
+                          {isAsc ? (
+                            <ArrowDown className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <ArrowUp className="h-4 w-4" aria-hidden />
+                          )}
+                          <span className="text-xs font-normal opacity-90">
+                            ({isAsc ? hintAsc : hintDesc})
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-[var(--muted)]" aria-hidden>
+                          ↕
+                        </span>
+                      )}
+                    </button>
+                  </th>
+                );
+              })}
+              <th className="px-4 py-3 text-center font-medium text-[var(--foreground)]">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-4 py-12 text-center text-[var(--muted)]">
+                  No hay productos que coincidan con los filtros
+                </td>
+              </tr>
+            ) : (
+              filtered.map((product) => (
+                <tr
+                  key={product.id}
+                  className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]/50"
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
+                        <Package className="h-4 w-4 text-[var(--primary)]" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-[var(--foreground)]">{product.name}</p>
+                        <p className="text-xs text-[var(--muted)]">
+                          Stock total: {product.stock} {product.unit}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-[var(--muted)]">{product.category}</td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditStock(product);
+                        setEditStockValue(product.stock);
+                        setEditStockError(null);
+                      }}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors hover:ring-2 hover:ring-[var(--primary)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] ${
+                        product.stock < product.minStock
+                          ? "bg-[var(--destructive)]/10 text-[var(--destructive)] hover:bg-[var(--destructive)]/20"
+                          : "bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20"
+                      }`}
+                      title="Clic para editar stock"
+                    >
+                      {product.stock} {product.unit}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {product.folio ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFolioClick(product.folio!);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 px-2.5 py-1 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
+                        title="Ver boleta/factura"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        {product.folio}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-[var(--muted)]">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center text-[var(--success)]">{product.entradas}</td>
+                  <td className="px-4 py-3 text-center text-[var(--destructive)]">{product.salidas}</td>
+                  <td className="px-4 py-3 text-center text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditLastDate({ product, field: "lastEntryAt" });
+                        setEditLastDateValue(toDateInputValue(product.lastEntryAt));
+                        setEditLastDateError(null);
+                      }}
+                      className="text-[var(--muted)] hover:text-[var(--primary)] hover:underline rounded px-1.5 py-0.5 -m-1"
+                      title="Clic para editar fecha de última entrada (ej. según factura)"
+                    >
+                      {formatLastEntryExitDate(product.lastEntryAt)}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-center text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditLastDate({ product, field: "lastExitAt" });
+                        setEditLastDateValue(toDateInputValue(product.lastExitAt));
+                        setEditLastDateError(null);
+                      }}
+                      className="text-[var(--muted)] hover:text-[var(--primary)] hover:underline rounded px-1.5 py-0.5 -m-1"
+                      title="Clic para editar fecha de última salida"
+                    >
+                      {formatLastEntryExitDate(product.lastExitAt)}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex justify-center gap-2">
+                      <button
+                        onClick={() => {
+                          setMovementError(null);
+                          setShowMovementModal({ product, type: "entrada" });
+                        }}
+                        className="flex items-center gap-1 rounded-md border border-[var(--success)]/50 bg-[var(--success)]/5 px-2 py-1 text-xs font-medium text-[var(--success)] hover:bg-[var(--success)]/10"
+                        title="Registrar entrada"
+                      >
+                        <ArrowDownCircle className="h-3.5 w-3.5" />
+                        Entrada
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMovementError(null);
+                          setShowMovementModal({ product, type: "salida" });
+                        }}
+                        className="flex items-center gap-1 rounded-md border border-[var(--destructive)]/50 bg-[var(--destructive)]/5 px-2 py-1 text-xs font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/10"
+                        title="Registrar salida"
+                      >
+                        <ArrowUpCircle className="h-3.5 w-3.5" />
+                        Salida
+                      </button>
+                      <button
+                        onClick={() => setProductToDelete(product)}
+                        className="flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--card)] p-1.5 text-[var(--muted)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] hover:border-[var(--destructive)]/30"
+                        title="Eliminar producto"
+                        type="button"
+                        aria-label="Eliminar producto"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal agregar producto */}
+      {showAddProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-[var(--foreground)]">
+              Agregar producto
+            </h3>
+            <form onSubmit={handleAddProduct} className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Nombre
+                </label>
+                <input
+                  type="text"
+                  value={newProduct.name}
+                  onChange={(e) =>
+                    setNewProduct((p) => ({ ...p, name: e.target.value }))
+                  }
+                  placeholder="Ej. Jabón líquido"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Categoría
+                </label>
+                <CustomSelect
+                  value={newProduct.category}
+                  onChange={(v: string) =>
+                    setNewProduct((p) => ({ ...p, category: v }))
+                  }
+                  placeholder="Seleccionar categoría"
+                  options={[
+                    { value: "Aseo", label: "Aseo" },
+                    { value: "Ropa de cama", label: "Ropa de cama" },
+                    { value: "Desayuno", label: "Desayuno" },
+                    { value: "Otros", label: "Otros" },
+                  ]}
+                  className="w-full"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                    Stock inicial
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newProduct.stock || ""}
+                    onChange={(e) =>
+                      setNewProduct((p) => ({
+                        ...p,
+                        stock: parseInt(e.target.value, 10) || 0,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                    Stock mínimo
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newProduct.minStock || ""}
+                    onChange={(e) =>
+                      setNewProduct((p) => ({
+                        ...p,
+                        minStock: parseInt(e.target.value, 10) || 0,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Unidad
+                </label>
+                <CustomSelect
+                  value={newProduct.unit}
+                  onChange={(v: string) =>
+                    setNewProduct((p) => ({ ...p, unit: v }))
+                  }
+                  placeholder="Seleccionar unidad"
+                  options={[
+                    { value: "unidad", label: "Unidad" },
+                    { value: "kg", label: "Kilogramo" },
+                    { value: "rollo", label: "Rollo" },
+                    { value: "litro", label: "Litro" },
+                  ]}
+                  className="w-full"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddProduct(false)}
+                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                >
+                  Agregar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal entrada/salida */}
+      {showMovementModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-[var(--foreground)]">
+              {showMovementModal.type === "entrada"
+                ? "Registrar entrada"
+                : "Registrar salida"}
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {showMovementModal.product.name} — Stock actual:{" "}
+              {showMovementModal.product.stock}{" "}
+              {showMovementModal.product.unit}
+            </p>
+            <form onSubmit={handleMovement} className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Cantidad
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={movementQty || ""}
+                  onChange={(e) =>
+                    setMovementQty(parseInt(e.target.value, 10) || 0)
+                  }
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  {showMovementModal.type === "salida"
+                    ? "Quién retira"
+                    : "Folio / Factura"}{" "}
+                  <span className="font-normal text-[var(--muted)]">(opcional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={movementFolio}
+                  onChange={(e) => setMovementFolio(e.target.value)}
+                  placeholder={
+                    showMovementModal.type === "salida"
+                      ? "Ej. Juan Pérez, Recepción"
+                      : "Ej. B-0001, F-0002"
+                  }
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  {showMovementModal.type === "salida"
+                    ? "Persona o área que retira el producto de bodega"
+                    : "Vincula este movimiento con una boleta o factura"}
+                </p>
+              </div>
+              {showMovementModal.type === "salida" &&
+                movementQty > showMovementModal.product.stock && (
+                  <p className="text-sm font-medium text-[var(--destructive)]">
+                    La cantidad no puede superar el stock actual ({showMovementModal.product.stock} {showMovementModal.product.unit}).
+                  </p>
+                )}
+              {movementError && (
+                <p className="text-sm text-[var(--destructive)]" role="alert">
+                  {movementError}
+                </p>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMovementModal(null);
+                    setMovementQty(0);
+                    setMovementFolio("");
+                    setMovementError(null);
+                  }}
+                  disabled={movementSubmitting}
+                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    movementSubmitting ||
+                    (showMovementModal.type === "salida" &&
+                      movementQty > showMovementModal.product.stock)
+                  }
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {movementSubmitting ? "Guardando…" : "Confirmar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal editar stock */}
+      {editStock &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-stock-title"
+          >
+            <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+              <h3 id="edit-stock-title" className="text-lg font-semibold text-[var(--foreground)]">
+                Editar stock
+              </h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {editStock.name} ({editStock.unit})
+              </p>
+              <div className="mt-4">
+                <label htmlFor="edit-stock-input" className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Cantidad
+                </label>
+                <input
+                  id="edit-stock-input"
+                  type="number"
+                  min={0}
+                  value={editStockValue}
+                  onChange={(e) => setEditStockValue(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  autoFocus
+                />
+              </div>
+              {editStockError && (
+                <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
+                  {editStockError}
+                </p>
+              )}
+              <div className="mt-6 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => !editStockSaving && setEditStock(null)}
+                  disabled={editStockSaving}
+                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setEditStockError(null);
+                    setEditStockSaving(true);
+                    const res = await updateProductStockAction(editStock.id, editStockValue);
+                    setEditStockSaving(false);
+                    if (res?.error) {
+                      setEditStockError(res.error);
+                      return;
+                    }
+                    setEditStock(null);
+                    setProducts((prev) =>
+                      prev.map((p) => (p.id === editStock.id ? { ...p, stock: editStockValue } : p))
+                    );
+                    router.refresh();
+                  }}
+                  disabled={editStockSaving}
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {editStockSaving ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal editar fecha última entrada / última salida */}
+      {editLastDate &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                {editLastDate.field === "lastEntryAt" ? "Últ. entrada" : "Últ. salida"}
+              </h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {editLastDate.product.name}
+              </p>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Indique la fecha según sus registros o facturas. Puede dejarla en blanco para usar la del último movimiento.
+              </p>
+              <div className="mt-4">
+                <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
+                  Fecha
+                </label>
+                <DatePickerInput
+                  value={editLastDateValue}
+                  onChange={setEditLastDateValue}
+                  placeholder="dd/mm/aaaa"
+                  aria-label="Fecha"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                />
+              </div>
+              {editLastDateError && (
+                <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
+                  {editLastDateError}
+                </p>
+              )}
+              <div className="mt-6 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => !editLastDateSaving && setEditLastDate(null)}
+                  disabled={editLastDateSaving}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const productId = editLastDate.product.id;
+                    const field = editLastDate.field;
+                    setEditLastDateError(null);
+                    setEditLastDateSaving(true);
+                    const res = await updateProductLastDatesAction(productId, {
+                      ...(field === "lastEntryAt" ? { lastEntryAt: null } : { lastExitAt: null }),
+                    });
+                    setEditLastDateSaving(false);
+                    if (res?.error) {
+                      setEditLastDateError(res.error);
+                      return;
+                    }
+                    setEditLastDate(null);
+                    router.refresh();
+                  }}
+                  disabled={editLastDateSaving}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--muted)]/20 disabled:opacity-50"
+                >
+                  Limpiar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setEditLastDateError(null);
+                    setEditLastDateSaving(true);
+                    const res = await updateProductLastDatesAction(editLastDate.product.id, {
+                      [editLastDate.field]: editLastDateValue.trim() || null,
+                    });
+                    setEditLastDateSaving(false);
+                    if (res?.error) {
+                      setEditLastDateError(res.error);
+                      return;
+                    }
+                    setEditLastDate(null);
+                    router.refresh();
+                  }}
+                  disabled={editLastDateSaving}
+                  className="flex-1 min-w-[100px] rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {editLastDateSaving ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal confirmar eliminar producto */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
+            <div className="flex items-center gap-3 rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 p-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--destructive)]/20">
+                <Trash2 className="h-5 w-5 text-[var(--destructive)]" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-[var(--foreground)]">
+                  ¿Eliminar producto?
+                </h3>
+                <p className="text-sm text-[var(--muted)]">
+                  Esta acción no se puede deshacer.
+                </p>
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-[var(--foreground)]">
+              Estás a punto de eliminar <strong className="text-[var(--foreground)]">&quot;{productToDelete.name}&quot;</strong> del inventario. Se borrarán también todos los movimientos y referencias en boletas/facturas asociados a este producto.
+            </p>
+            {deleteError && (
+              <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
+                {deleteError}
+              </p>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setProductToDelete(null);
+                  setDeleteError(null);
+                }}
+                disabled={deleting}
+                className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                className="flex-1 rounded-lg bg-[var(--destructive)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {deleting ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal ver boleta/factura desde inventario */}
+      {invoicePreviewFolio != null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={closeInvoicePreview}
+        >
+          <div
+            className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                {invoicePreviewFolio}
+              </h3>
+              <button
+                type="button"
+                onClick={closeInvoicePreview}
+                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {loadingInvoicePreview && (
+              <p className="mt-4 text-sm text-[var(--muted)]">Cargando…</p>
+            )}
+            {!loadingInvoicePreview && !invoicePreview && (
+              <p className="mt-4 text-sm text-[var(--muted)]">
+                No se encontró el documento con folio {invoicePreviewFolio}.
+              </p>
+            )}
+            {!loadingInvoicePreview && invoicePreview && (
+              <>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {invoicePreview.type === "boleta" ? "Boleta" : "Factura"} · {invoicePreview.date}
+                </p>
+                <p className="mt-2 text-2xl font-bold text-[var(--foreground)]">
+                  {formatCLP(invoicePreview.total)}
+                </p>
+                {invoicePreview.photoUrls.length > 0 && (
+                  <div className="mt-4">
+                    <p className="mb-2 text-sm font-medium text-[var(--foreground)]">
+                      Fotos
+                    </p>
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                      {invoicePreview.photoUrls.map((url, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setInvoicePhotoPreviewUrl(url)}
+                          className="h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-[var(--border)] transition-opacity hover:opacity-90"
+                        >
+                          <img
+                            src={url}
+                            alt={`Foto ${i + 1}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-4">
+                  <p className="mb-2 text-sm font-medium text-[var(--foreground)]">
+                    Productos
+                  </p>
+                  <ul className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                    {invoicePreview.items.map((item, i) => (
+                      <li
+                        key={i}
+                        className="flex justify-between text-sm"
+                      >
+                        <span className="text-[var(--foreground)]">{item.productName}</span>
+                        <span className="font-medium text-[var(--muted)]">
+                          {item.quantity} {item.unit}
+                          {item.unitPrice > 0 && (
+                            <> · {formatCLP(item.unitPrice)} = {formatCLP(item.quantity * item.unitPrice)}</>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal foto en grande (desde vista boleta en inventario) */}
+      {invoicePhotoPreviewUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setInvoicePhotoPreviewUrl(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Ver foto"
+        >
+          <button
+            type="button"
+            onClick={() => setInvoicePhotoPreviewUrl(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            aria-label="Cerrar"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          <img
+            src={invoicePhotoPreviewUrl}
+            alt="Foto del documento"
+            className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
