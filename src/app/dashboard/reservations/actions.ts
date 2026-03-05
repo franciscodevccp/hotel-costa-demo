@@ -45,7 +45,7 @@ export async function createReservation(
   const checkOut = new Date(yOut, mOut - 1, dOut);
   if (Number.isNaN(checkIn.getTime())) return { error: "Fecha de check-in no válida" };
   if (Number.isNaN(checkOut.getTime())) return { error: "Fecha de check-out no válida" };
-  if (checkIn >= checkOut) return { error: "El check-out debe ser posterior al check-in" };
+  if (checkOut < checkIn) return { error: "El check-out no puede ser anterior al check-in" };
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -70,7 +70,7 @@ export async function createReservation(
       select: { type: true, companyName: true, companyRut: true, companyEmail: true },
     });
     const companyData =
-      guest?.type === "COMPANY" && guest.companyName
+      (guest?.type === "COMPANY" || guest?.type === "DELEGACION") && guest.companyName
         ? {
             companyName: guest.companyName,
             companyRut: guest.companyRut ?? null,
@@ -201,7 +201,7 @@ export async function createReservationsBulk(payload: {
   if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
     return { error: "Fechas no válidas" };
   }
-  if (checkIn >= checkOut) return { error: "El check-out debe ser posterior al check-in" };
+  if (checkOut < checkIn) return { error: "El check-out no puede ser anterior al check-in" };
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -229,7 +229,7 @@ export async function createReservationsBulk(payload: {
       select: { id: true, pricePerNight: true, externalId: true },
     });
     const roomMap = new Map(roomsFromDb.map((r) => [r.id, r]));
-    const nights = Math.max(0, Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)));
+    const nights = Math.max(1, Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)));
 
     const guest = await prisma.guest.findUnique({
       where: { id: guestId, establishmentId },
@@ -238,7 +238,7 @@ export async function createReservationsBulk(payload: {
     if (!guest) return { error: "Huésped no encontrado" };
 
     const companyData =
-      guest.type === "COMPANY" && guest.companyName
+      (guest.type === "COMPANY" || guest.type === "DELEGACION") && guest.companyName
         ? {
             companyName: guest.companyName,
             companyRut: guest.companyRut ?? null,

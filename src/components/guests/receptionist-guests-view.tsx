@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Mail, Phone, MapPin, Bed, UserPlus, Lock, X, Calendar, Plus, Trash2, User, Building2 } from "lucide-react";
+import { Search, Mail, Phone, MapPin, Bed, UserPlus, Lock, X, Calendar, Plus, Trash2, User, Building2, Trophy, Landmark } from "lucide-react";
 import { formatChileanRut, RUT_FORMATTED_MAX_LENGTH } from "@/lib/utils/rut";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { updateGuest, getGuestReservationsAction, setGuestBlocked, setGuestUnblocked, deleteGuest, type UpdateGuestState, type GuestReservationItem } from "@/app/dashboard/guests/actions";
@@ -23,7 +23,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
   const router = useRouter();
-  const [guestTypeTab, setGuestTypeTab] = useState<"person" | "company">("person");
+  const [guestTypeTab, setGuestTypeTab] = useState<"personas" | "club" | "delegaciones">("personas");
   const [search, setSearch] = useState("");
   const [guestToEdit, setGuestToEdit] = useState<GuestRow | null>(null);
   const [guestHistory, setGuestHistory] = useState<GuestRow | null>(null);
@@ -93,7 +93,12 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
     new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", minimumFractionDigits: 0 }).format(amount);
 
   const filtered = guests.filter((g) => {
-    const matchType = guestTypeTab === "company" ? g.type === "COMPANY" : g.type === "PERSON";
+    const matchType =
+      guestTypeTab === "personas"
+        ? g.type === "PERSON"
+        : guestTypeTab === "club"
+          ? g.type === "CLUB"
+          : (g.type === "DELEGACION" || g.type === "COMPANY");
     if (!matchType) return false;
     return (
       !search ||
@@ -132,23 +137,31 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
         </div>
       </div>
 
-      {/* Tabs Persona particular / Empresas */}
+      {/* Tabs Personas / Club / Delegaciones */}
       <div className="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-1">
         <button
           type="button"
-          onClick={() => setGuestTypeTab("person")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "person" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+          onClick={() => setGuestTypeTab("personas")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "personas" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
         >
           <User className="h-4 w-4" />
-          Persona particular
+          Personas
         </button>
         <button
           type="button"
-          onClick={() => setGuestTypeTab("company")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "company" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+          onClick={() => setGuestTypeTab("club")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "club" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
         >
-          <Building2 className="h-4 w-4" />
-          Empresas
+          <Trophy className="h-4 w-4" />
+          Club
+        </button>
+        <button
+          type="button"
+          onClick={() => setGuestTypeTab("delegaciones")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "delegaciones" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+        >
+          <Landmark className="h-4 w-4" />
+          Delegaciones
         </button>
       </div>
 
@@ -166,7 +179,11 @@ export function ReceptionistGuestsView({ guests }: { guests: GuestRow[] }) {
       <div className="space-y-3">
         {filtered.length === 0 ? (
           <p className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-[var(--muted)]">
-            {guestTypeTab === "person" ? "No hay personas particulares que coincidan." : "No hay empresas que coincidan."}
+            {guestTypeTab === "personas"
+              ? "No hay personas que coincidan."
+              : guestTypeTab === "club"
+                ? "No hay registros de club que coincidan."
+                : "No hay delegaciones que coincidan."}
           </p>
         ) : (
           filtered.map((guest) => (

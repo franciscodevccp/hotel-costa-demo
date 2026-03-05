@@ -41,7 +41,7 @@ export default async function ReservationsPage() {
         total_price: totalToPay,
         paid_amount: paid,
         pending_amount: Math.max(0, totalToPay - paid),
-        nights: differenceInDays(r.checkOut, r.checkIn),
+        nights: Math.max(1, differenceInDays(r.checkOut, r.checkIn)),
         guests: r.numGuests,
         payment_term_days: r.paymentTermDays ?? undefined,
         folio_number: r.folioNumber ?? undefined,

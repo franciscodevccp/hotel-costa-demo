@@ -43,14 +43,12 @@ export function AdminDashboard({
           title="Ingresos del Mes"
           value={formatCLP(stats.revenue)}
           icon={DollarSign}
-          trend={{ value: stats.revenueTrend, isPositive: true }}
         />
         <StatCard
           title="Ocupación"
-          value={`${stats.occupancy}%`}
+          value={`${stats.occupiedRooms} de ${stats.totalRooms}`}
           icon={TrendingUp}
-          trend={{ value: stats.occupancyTrend, isPositive: true }}
-          description={`${stats.occupiedRooms} de ${stats.totalRooms} habitaciones`}
+          description="habitaciones"
         />
         <StatCard
           title="Reservas Activas"

@@ -58,7 +58,10 @@ type Room = Awaited<ReturnType<typeof import("@/lib/queries/rooms").getRooms>>[n
 const initialState: CreateRoomState = {};
 const initialEditState: UpdateRoomState = {};
 
-export function AdminRoomsView({ rooms }: { rooms: Room[] }) {
+type Role = "ADMIN" | "RECEPTIONIST";
+
+export function AdminRoomsView({ rooms, role = "ADMIN" }: { rooms: Room[]; role?: Role }) {
+  const isReceptionist = role === "RECEPTIONIST";
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -152,14 +155,16 @@ export function AdminRoomsView({ rooms }: { rooms: Room[] }) {
           <h2 className="text-2xl font-bold tracking-tight text-[var(--foreground)]">Gestión de Habitaciones</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">Administra todas las habitaciones del establecimiento</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 md:w-auto"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva Habitación
-        </button>
+        {!isReceptionist && (
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 md:w-auto"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva Habitación
+          </button>
+        )}
       </div>
 
       {/* Modal Nueva Habitación (portal para que el overlay cubra toda la pantalla) */}
@@ -582,29 +587,33 @@ export function AdminRoomsView({ rooms }: { rooms: Room[] }) {
                 <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[room.displayStatus ?? room.status] ?? ""}`}>
                   {statusLabels[room.displayStatus ?? room.status] ?? (room.displayStatus ?? room.status)}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => { setDeleteError(null); setRoomToDelete(room); }}
-                  disabled={deletingId === room.id}
-                  className="rounded-lg p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:opacity-50"
-                  title="Eliminar habitación"
-                  aria-label="Eliminar habitación"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                {!isReceptionist && (
+                  <button
+                    type="button"
+                    onClick={() => { setDeleteError(null); setRoomToDelete(room); }}
+                    disabled={deletingId === room.id}
+                    className="rounded-lg p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:opacity-50"
+                    title="Eliminar habitación"
+                    aria-label="Eliminar habitación"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             </div>
             <div className="mt-4 flex items-center justify-between border-t border-[var(--border)] pt-3">
               <span className="text-sm font-semibold text-[var(--foreground)]">
                 {formatCLP(room.pricePerNight)}/noche
               </span>
-              <button
-                type="button"
-                onClick={() => setEditingRoom(room)}
-                className="text-sm font-medium text-[var(--primary)] transition-colors hover:underline"
-              >
-                Editar
-              </button>
+              {!isReceptionist && (
+                <button
+                  type="button"
+                  onClick={() => setEditingRoom(room)}
+                  className="text-sm font-medium text-[var(--primary)] transition-colors hover:underline"
+                >
+                  Editar
+                </button>
+              )}
             </div>
           </div>
         ))}

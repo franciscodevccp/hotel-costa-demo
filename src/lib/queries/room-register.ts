@@ -82,7 +82,7 @@ export async function getRoomRegister(establishmentId: string, date: Date) {
     const total = res != null ? (res.totalAmount ?? 0) + consumptionSum : 0;
     const balance = Math.max(0, total - paid);
     const guestLabel = res
-      ? (res.guest.type === "COMPANY" && res.guest.companyName
+      ? ((res.guest.type === "COMPANY" || res.guest.type === "DELEGACION") && res.guest.companyName
           ? res.guest.companyName
           : res.guest.fullName)
       : null;

@@ -8,7 +8,7 @@ export default async function RoomsPage() {
 
   return (
     <div className="p-6">
-      <AdminRoomsView rooms={rooms} />
+      <AdminRoomsView rooms={rooms} role={session.user.role} />
     </div>
   );
 }

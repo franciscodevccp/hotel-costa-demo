@@ -8,10 +8,9 @@ import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
-import { SyncMotopressButton } from "./sync-motopress-button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 
 export interface ReservationDisplay {
@@ -19,7 +18,7 @@ export interface ReservationDisplay {
     guest_name: string;
     guest_email: string;
     guest_phone: string;
-    guest_type?: "PERSON" | "COMPANY";
+    guest_type?: "PERSON" | "COMPANY" | "CLUB" | "DELEGACION";
     room_number: string;
     room_type: string;
     check_in: string;
@@ -55,18 +54,18 @@ export interface ReservationDisplay {
     }[];
 }
 
-/** Estilos del calendario por estado de reserva (colores bien diferenciados entre sí) */
+/** Estilos del calendario por estado: colores bien diferenciados para distinguir cada estado */
 const CALENDAR_STATUS_STYLES: Record<ReservationDisplay["status"], string> = {
-    pending: "bg-yellow-400 text-slate-900 shadow-sm border-2 border-yellow-500/50",
-    confirmed: "bg-blue-500 text-white shadow-sm border-2 border-blue-600/40",
-    checked_in: "bg-emerald-600 text-white shadow-sm border-2 border-emerald-700/40",
-    checked_out: "bg-slate-500 text-white shadow-sm border-2 border-slate-600/40",
-    cancelled: "bg-red-500 text-white shadow-sm border-2 border-red-600/40",
-    no_show: "bg-violet-600 text-white shadow-sm border-2 border-violet-700/40",
+    pending: "bg-amber-200 text-amber-900 border border-amber-500 shadow-sm",
+    confirmed: "bg-blue-600 text-white border border-blue-700 shadow-sm",
+    checked_in: "bg-emerald-600 text-white border border-emerald-700 shadow-sm",
+    checked_out: "bg-slate-500 text-white border border-slate-600 shadow-sm",
+    cancelled: "bg-red-300 text-red-950 border border-red-400 shadow-sm",
+    no_show: "bg-fuchsia-400 text-fuchsia-950 border border-fuchsia-500 shadow-sm",
 };
 
 type RoomOption = { id: string; roomNumber: string; pricePerNight: number };
-type GuestOption = { id: string; fullName: string; email: string; type?: "PERSON" | "COMPANY" };
+type GuestOption = { id: string; fullName: string; email: string; type?: "PERSON" | "COMPANY" | "CLUB" | "DELEGACION" };
 
 /** Formatea entrada como RUT chileno: 12.345.678-9. Máximo 8 dígitos + 1 dígito verificador. */
 function formatChileanRut(value: string): string {
@@ -170,7 +169,7 @@ export function AdminReservationsView({
     const [showEmergencyContact, setShowEmergencyContact] = useState(false);
     const [emergencyContactName, setEmergencyContactName] = useState("");
     const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
-    const [newGuestType, setNewGuestType] = useState<"PERSON" | "COMPANY">("PERSON");
+    const [newGuestType, setNewGuestType] = useState<"PERSON" | "CLUB" | "DELEGACION">("PERSON");
     const [newGuestCompanyRut, setNewGuestCompanyRut] = useState("");
     const [guestState, guestFormAction] = useActionState(createGuest, initialGuestState);
 
@@ -212,10 +211,11 @@ export function AdminReservationsView({
       if (updated) setSelectedReservation(updated);
     }, [reservations, selectedReservation?.id]);
 
-    // Si cambia a huésped persona y tenía Orden de compra, volver a método normal
+    // Si cambia a huésped persona/club y tenía Orden de compra, volver a método normal
     useEffect(() => {
       const selected = localGuests.find((g) => g.id === newGuestId);
-      if (selected?.type !== "COMPANY" && newDownPaymentMethod === "PURCHASE_ORDER") {
+      const isCompanyOrDelegacion = selected?.type === "COMPANY" || selected?.type === "DELEGACION";
+      if (!isCompanyOrDelegacion && newDownPaymentMethod === "PURCHASE_ORDER") {
         setNewDownPaymentMethod("CASH");
         setNewPaymentTermDays(0);
       }
@@ -231,24 +231,26 @@ export function AdminReservationsView({
 
       if (newCheckIn && newCheckOut) {
         return rooms.filter((room) => {
-          const hasBlocking = reservations.some(
-            (r) =>
-              isActiveReservation(r) &&
-              sameRoom(room, r) &&
-              r.check_in < newCheckOut! &&
-              r.check_out > newCheckIn!
-          );
+          const hasBlocking = reservations.some((r) => {
+            if (!isActiveReservation(r) || !sameRoom(room, r)) return false;
+            const overlapStart = r.check_in < newCheckOut!;
+            const overlapEnd =
+              r.status === "checked_out"
+                ? r.check_out > newCheckIn!
+                : r.check_out >= newCheckIn!;
+            return overlapStart && overlapEnd;
+          });
           return !hasBlocking;
         });
       }
-      // Sin fechas: ocultar habitaciones ocupadas hoy (para no mostrar Hab. 1 si ya tiene reserva hoy)
+      // Sin fechas: ocultar habitaciones ocupadas hoy (incluye mismo día sin check-out)
       return rooms.filter((room) => {
         const occupiedToday = reservations.some(
           (r) =>
             isActiveReservation(r) &&
             sameRoom(room, r) &&
             r.check_in <= todayStr &&
-            r.check_out > todayStr
+            (r.check_out > todayStr || (r.check_out === todayStr && r.status !== "checked_out"))
         );
         return !occupiedToday;
       });
@@ -263,11 +265,16 @@ export function AdminReservationsView({
         (r) => !roomLines.some((l, i) => i !== lineIndex && l.roomId === r.id)
       );
 
+    const effectiveNights = Math.max(1, nights);
     const calculatedTotal = roomLines.reduce((sum, line) => {
       if (!line.roomId) return sum;
       const room = rooms.find((r) => r.id === line.roomId);
-      return sum + (room ? room.pricePerNight * nights : 0);
+      return sum + (room ? room.pricePerNight * effectiveNights : 0);
     }, 0);
+
+    useEffect(() => {
+      setNewTotalAmount(calculatedTotal);
+    }, [calculatedTotal]);
 
     useEffect(() => {
       if (reservationState?.success) {
@@ -304,6 +311,21 @@ export function AdminReservationsView({
         return prev === 0 || prev === calculatedTotal ? calculatedTotal : prev;
       });
     }, [calculatedTotal, roomLines.length, roomLines[0]?.roomId]);
+
+    // Sincronización automática con la web (MotoPress) cada 1 minuto
+    useEffect(() => {
+      const runSync = async () => {
+        const result = await syncMotopressReservations();
+        if (result.success) router.refresh();
+      };
+      const delay = setTimeout(runSync, 2000);
+      const interval = setInterval(runSync, 60 * 1000);
+      return () => {
+        clearTimeout(delay);
+        clearInterval(interval);
+      };
+    }, [router]);
+
     const filteredReservations = statusFilter
         ? reservations.filter((r) => r.status === statusFilter)
         : reservations;
@@ -357,14 +379,16 @@ export function AdminReservationsView({
         return d ? d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" }) : dateString;
     };
 
-    // Calendario: obtener reserva que incluye un día para una habitación (usar día local para evitar UTC)
+    // Calendario: obtener reserva que incluye un día para una habitación (check-in y check-out inclusivos)
     const getReservationForDay = (roomNumber: string, day: Date) => {
         return reservations.find((r) => {
             if (r.room_number !== roomNumber) return false;
             const start = parseLocalDateStr(r.check_in);
             const end = parseLocalDateStr(r.check_out);
             if (!start || !end) return false;
-            return isWithinInterval(day, { start, end }) && !isSameDay(day, end);
+            const sameDayStay = isSameDay(start, end);
+            if (sameDayStay) return isSameDay(day, start);
+            return isWithinInterval(day, { start, end });
         });
     };
 
@@ -384,10 +408,11 @@ export function AdminReservationsView({
         const start = parseLocalDateStr(r.check_in);
         const end = parseLocalDateStr(r.check_out);
         if (!start || !end) return 0;
+        if (isSameDay(start, end)) return 1;
         const monthStart = startOfMonth(calendarDate);
         const monthEnd = addDays(startOfMonth(calendarDate), getDaysInMonth(calendarDate) - 1);
         const effectiveStart = start < monthStart ? monthStart : start;
-        const effectiveEnd = end > monthEnd ? monthEnd : addDays(end, -1);
+        const effectiveEnd = end > monthEnd ? monthEnd : end;
         if (day < effectiveStart || day > effectiveEnd) return 0;
         return differenceInDays(effectiveEnd, day) + 1;
     };
@@ -406,7 +431,6 @@ export function AdminReservationsView({
                     </p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                    <SyncMotopressButton />
                     <button
                         type="button"
                         onClick={() => { setNewReservationOpen(true); setNewDownPaymentReceiptFile(null); setNewDownPaymentMethod(""); }}
@@ -594,7 +618,7 @@ export function AdminReservationsView({
                               onChange={setNewGuestId}
                               options={localGuests.map((g) => ({
                                 value: g.id,
-                                label: `${g.fullName}${g.email ? ` (${g.email})` : ""} — ${g.type === "COMPANY" ? "Empresa" : "Persona"}`,
+                                label: `${g.fullName}${g.email ? ` (${g.email})` : ""} — ${g.type === "COMPANY" ? "Empresa" : g.type === "DELEGACION" ? "Delegación" : g.type === "CLUB" ? "Club" : "Persona"}`,
                               }))}
                               placeholder="Seleccionar huésped"
                               aria-label="Seleccionar huésped"
@@ -782,7 +806,7 @@ export function AdminReservationsView({
                               { value: "TRANSFER", label: "Transferencia" },
                               { value: "DEBIT", label: "Débito" },
                               { value: "CREDIT", label: "Crédito" },
-                              ...(localGuests.find((g) => g.id === newGuestId)?.type === "COMPANY"
+                              ...(localGuests.find((g) => g.id === newGuestId)?.type === "COMPANY" || localGuests.find((g) => g.id === newGuestId)?.type === "DELEGACION"
                                 ? [{ value: "PURCHASE_ORDER", label: "Orden de compra" }]
                                 : []),
                               { value: "OTHER", label: "Otro" },
@@ -922,48 +946,43 @@ export function AdminReservationsView({
                         </p>
                       )}
                       <div>
-                        <span className="mb-2 block text-sm font-medium text-[var(--foreground)]">Categoría *</span>
-                        <div className="flex gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
-                          <button
-                            type="button"
-                            onClick={() => setNewGuestType("PERSON")}
-                            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${newGuestType === "PERSON" ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
-                          >
-                            Persona
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setNewGuestType("COMPANY")}
-                            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${newGuestType === "COMPANY" ? "bg-[var(--primary)] text-white" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
-                          >
-                            Empresa
-                          </button>
-                        </div>
+                        <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Categoría *</label>
+                        <CustomSelect
+                          value={newGuestType}
+                          onChange={(v) => setNewGuestType(v as "PERSON" | "CLUB" | "DELEGACION")}
+                          options={[
+                            { value: "PERSON", label: "Personas — Huésped particular" },
+                            { value: "CLUB", label: "Club — Miembro de club o grupo" },
+                            { value: "DELEGACION", label: "Delegaciones — Grupo con datos de contacto" },
+                          ]}
+                          placeholder="Seleccionar tipo de huésped"
+                          aria-label="Tipo de huésped"
+                        />
                         <p className="mt-1 text-xs text-[var(--muted)]">
                           En Pagos pendientes aparecerán en la sección correspondiente.
                         </p>
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">
-                          {newGuestType === "COMPANY" ? "Nombre del contacto *" : "Nombre completo *"}
+                          {newGuestType === "DELEGACION" ? "Nombre del contacto *" : "Nombre completo *"}
                         </label>
                         <input
                           type="text"
                           name="fullName"
                           required
-                          placeholder={newGuestType === "COMPANY" ? "Ej. Juan Pérez (representante)" : "Ej. Juan Pérez"}
+                          placeholder={newGuestType === "DELEGACION" ? "Ej. Juan Pérez (representante)" : "Ej. Juan Pérez"}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                         />
                       </div>
-                      {newGuestType === "COMPANY" && (
+                      {newGuestType === "DELEGACION" && (
                         <>
                           <div>
-                            <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Razón social *</label>
+                            <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nombre delegación *</label>
                             <input
                               type="text"
                               name="companyName"
-                              required={newGuestType === "COMPANY"}
-                              placeholder="Ej. Hotelera Norte SpA"
+                              required
+                              placeholder="Ej. Delegación Regional Sur"
                               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                             />
                           </div>
@@ -1142,36 +1161,44 @@ export function AdminReservationsView({
                         </div>
                     </div>
 
-                    {/* Estados (debajo del mes, para entender los colores del calendario) */}
-                    <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-xs">
+                    {/* Leyenda de estados */}
+                    <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-[var(--border)] bg-[var(--card)]/50 px-4 py-2.5 text-xs">
                         <span className="font-medium text-[var(--muted)]">Estados:</span>
-                        <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 items-center justify-center rounded border border-emerald-200/60 bg-emerald-50 text-emerald-600 font-semibold">+</span>
+                        <div className="flex items-center gap-1.5">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted)]/50 text-sm font-light">+</span>
                             <span className="text-[var(--muted)]">Disponible</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <span className="flex h-6 min-w-[24px] items-center justify-center rounded bg-slate-200 text-slate-600 font-semibold">−</span>
-                            <span className="text-[var(--muted)]">Ocupado</span>
+                        <div className="flex items-center gap-1.5">
+                            <span className="inline-block h-4 w-4 rounded-md bg-slate-400 border border-slate-500" />
+                            <span className="text-[var(--muted)]">Check-out</span>
                         </div>
-                        <div className="h-4 w-px bg-[var(--border)]" />
-                        <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                             {(["pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show"] as const).map((status) => (
                                 <div key={status} className="flex items-center gap-1.5">
-                                    <span className={`inline-block h-4 w-4 rounded ${CALENDAR_STATUS_STYLES[status]} border border-[var(--border)]`} />
+                                    <span className={`inline-block h-3.5 w-3.5 shrink-0 rounded-md ${CALENDAR_STATUS_STYLES[status]}`} />
                                     <span className="text-[var(--muted)]">{statusLabels[status]}</span>
                                 </div>
                             ))}
                         </div>
                     </div>
 
-                    {/* Cuadrícula del calendario */}
-                    <div className="w-full overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
-                        <table className="w-full table-fixed border-collapse text-sm">
+                    {/* Cuadrícula del calendario: scroll horizontal en móvil para que los días no se aplasten */}
+                    <div className="w-full overflow-x-auto overflow-y-visible rounded-xl border border-[var(--border)] bg-[var(--card)] -mx-1 px-1 sm:mx-0 sm:px-0">
+                        <table
+                            className="w-full border-collapse text-sm"
+                            style={{ minWidth: `calc(5rem + ${monthDays.length * 36}px)` }}
+                        >
+                            <colgroup>
+                                <col className="w-20 sm:w-28" />
+                                {monthDays.map((d) => (
+                                    <col key={d.toISOString()} style={{ width: 36, minWidth: 36 }} />
+                                ))}
+                            </colgroup>
                             <thead>
                                 <tr className="border-b border-[var(--border)] bg-[var(--muted)]/30">
-                                    <th className="w-28 shrink-0 border-r border-[var(--border)] px-3 py-2.5 text-left text-xs font-medium text-[var(--muted)]">Habitación</th>
+                                    <th className="sticky left-0 z-10 shrink-0 border-r border-[var(--border)] bg-[var(--muted)]/30 px-2 py-2.5 text-left text-xs font-medium text-[var(--muted)] sm:px-3">Habitación</th>
                                     {monthDays.map((d) => (
-                                        <th key={d.toISOString()} className="min-w-0 px-0 py-2 text-center text-xs font-medium text-[var(--muted)]">
+                                        <th key={d.toISOString()} className="shrink-0 px-0 py-2 text-center text-xs font-medium text-[var(--muted)]" style={{ width: 36, minWidth: 36 }}>
                                             {format(d, "d")}
                                         </th>
                                     ))}
@@ -1180,10 +1207,10 @@ export function AdminReservationsView({
                             <tbody>
                                 {ROOMS.map((roomNumber, roomIdx) => (
                                     <tr key={roomNumber} className="border-b border-[var(--border)] last:border-0">
-                                        <td className="border-r border-[var(--border)] px-3 py-2 align-middle">
+                                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--card)] px-2 py-2 align-middle sm:px-3">
                                             <div className="flex items-center gap-2">
                                                 <Home className="h-4 w-4 shrink-0 text-[var(--muted)]" />
-                                                <span className="font-medium text-[var(--foreground)]">Habitación {roomNumber}</span>
+                                                <span className="font-medium text-[var(--foreground)] whitespace-nowrap">Habitación {roomNumber}</span>
                                             </div>
                                         </td>
                                         {monthDays.map((day) => {
@@ -1193,7 +1220,7 @@ export function AdminReservationsView({
                                             if (span > 0 && res) {
                                                 const statusStyle = CALENDAR_STATUS_STYLES[res.status];
                                                 const paymentStatus = getPaymentStatus(res);
-                                                const guestTypeLabel = res.guest_type === "COMPANY" ? "Empresa" : "Persona";
+                                                const guestTypeLabel = res.guest_type === "COMPANY" ? "Empresa" : res.guest_type === "DELEGACION" ? "Delegación" : res.guest_type === "CLUB" ? "Club" : "Persona";
                                                 return (
                                                     <td
                                                         key={day.toISOString()}
@@ -1204,7 +1231,7 @@ export function AdminReservationsView({
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setSelectedReservation(res)}
-                                                                className={`min-h-[36px] w-full flex items-center justify-center rounded-lg px-2 py-1.5 text-xs font-semibold text-white truncate transition-all hover:shadow-md hover:scale-[1.02] cursor-pointer ${statusStyle}`}
+                                                                className={`min-h-[36px] w-full flex items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium truncate transition-all hover:shadow-md hover:opacity-95 cursor-pointer ${statusStyle}`}
                                                             >
                                                                 {res.guest_name}
                                                             </button>
@@ -1212,12 +1239,12 @@ export function AdminReservationsView({
                                                             <div className="pointer-events-none absolute right-full top-1/2 z-20 mr-1 -translate-y-1/2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-left text-xs shadow-xl opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ minWidth: "200px", maxWidth: "280px" }}>
                                                                 <p className="font-semibold text-[var(--foreground)]">{res.guest_name}</p>
                                                                 <p className={`mt-1 font-medium ${
-                                                                    res.status === "cancelled" ? "text-[var(--destructive)]" :
-                                                                    res.status === "no_show" ? "text-[var(--warning)]" :
-                                                                    res.status === "pending" ? "text-[var(--warning)]" :
-                                                                    res.status === "confirmed" ? "text-[var(--primary)]" :
-                                                                    res.status === "checked_in" ? "text-[var(--success)]" :
-                                                                    "text-[var(--muted)]"
+                                                                    res.status === "cancelled" ? "text-red-700" :
+                                                                    res.status === "no_show" ? "text-fuchsia-800" :
+                                                                    res.status === "pending" ? "text-amber-800" :
+                                                                    res.status === "confirmed" ? "text-blue-700" :
+                                                                    res.status === "checked_in" ? "text-emerald-700" :
+                                                                    "text-slate-600"
                                                                 }`}>
                                                                     {res.status === "cancelled" ? "Reserva cancelada" : statusLabels[res.status]}
                                                                 </p>
@@ -1235,9 +1262,9 @@ export function AdminReservationsView({
                                             if (res) return null; // celda ya cubierta por colspan
 
                                             return (
-                                                <td key={day.toISOString()} className="w-[1%] px-0.5 py-1 align-middle">
+                                                <td key={day.toISOString()} className="px-0.5 py-1 align-middle" style={{ width: 36, minWidth: 36 }}>
                                                     <div
-                                                        className="flex h-[36px] w-full min-w-[28px] items-center justify-center rounded-lg border border-emerald-200/60 bg-emerald-50 text-emerald-600 font-semibold shadow-sm hover:bg-emerald-100 hover:border-emerald-300/80 hover:shadow transition-all cursor-pointer"
+                                                        className="flex min-h-[36px] h-full w-full items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted)]/50 text-lg font-light hover:bg-[var(--primary)]/5 hover:border-[var(--primary)]/30 hover:text-[var(--primary)]/70 transition-colors cursor-pointer"
                                                         title={`Disponible · Hab. ${roomNumber} - Click para reservar`}
                                                     >
                                                         +
@@ -1305,8 +1332,8 @@ export function AdminReservationsView({
                                 <div className="min-w-0 flex-1">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <h3 className="font-semibold text-[var(--foreground)]">{reservation.guest_name}</h3>
-                                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${reservation.guest_type === "COMPANY" ? "bg-[var(--secondary)]/20 text-[var(--secondary)]" : "bg-[var(--muted)]/20 text-[var(--muted)]"}`}>
-                                            {reservation.guest_type === "COMPANY" ? "Empresa" : "Persona"}
+                                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${reservation.guest_type === "COMPANY" || reservation.guest_type === "DELEGACION" ? "bg-[var(--secondary)]/20 text-[var(--secondary)]" : reservation.guest_type === "CLUB" ? "bg-[var(--primary)]/20 text-[var(--primary)]" : "bg-[var(--muted)]/20 text-[var(--muted)]"}`}>
+                                            {reservation.guest_type === "COMPANY" ? "Empresa" : reservation.guest_type === "DELEGACION" ? "Delegación" : reservation.guest_type === "CLUB" ? "Club" : "Persona"}
                                         </span>
                                         <span className={`rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${statusColors[reservation.status]}`}>
                                             {statusLabels[reservation.status]}

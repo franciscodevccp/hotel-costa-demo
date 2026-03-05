@@ -55,7 +55,7 @@ export type PaymentRow = {
   reservation_id: string;
   paid_at: string;
   guest_name: string;
-  guest_type: "PERSON" | "COMPANY";
+  guest_type: "PERSON" | "COMPANY" | "CLUB" | "DELEGACION";
   room_number: string;
   amount: number;
   total_amount?: number;
@@ -481,7 +481,7 @@ export function AdminPaymentsView({
                   <div>
                     <p className="font-semibold text-[var(--foreground)]">{p.guest_name}</p>
                     <p className="text-xs text-[var(--muted)]">
-                      {p.guest_type === "COMPANY" ? "Empresa" : "Persona"}
+                      {p.guest_type === "COMPANY" ? "Empresa" : p.guest_type === "DELEGACION" ? "Delegación" : p.guest_type === "CLUB" ? "Club" : "Persona"}
                       <span className="mx-1">·</span>
                       Hab. {p.room_number}
                     </p>
@@ -590,7 +590,7 @@ export function AdminPaymentsView({
                     <td className="px-4 py-3 font-medium text-[var(--foreground)]">
                       <div>
                         <p className="font-medium text-[var(--foreground)]">{p.guest_name}</p>
-                        <p className="text-xs text-[var(--muted)]">{p.guest_type === "COMPANY" ? "Empresa" : "Persona"}</p>
+                        <p className="text-xs text-[var(--muted)]">{p.guest_type === "COMPANY" ? "Empresa" : p.guest_type === "DELEGACION" ? "Delegación" : p.guest_type === "CLUB" ? "Club" : "Persona"}</p>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-[var(--foreground)]">

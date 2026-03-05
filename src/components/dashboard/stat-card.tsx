@@ -5,16 +5,12 @@ interface StatCardProps {
     title: string;
     value: string | number;
     icon: LucideIcon;
-    trend?: {
-        value: number;
-        isPositive: boolean;
-    };
     description?: string;
     href?: string;
     variant?: "default" | "warning";
 }
 
-export function StatCard({ title, value, icon: Icon, trend, description, href, variant = "default" }: StatCardProps) {
+export function StatCard({ title, value, icon: Icon, description, href, variant = "default" }: StatCardProps) {
     const content = (
         <>
             <div className="flex items-start justify-between gap-2">
@@ -23,18 +19,6 @@ export function StatCard({ title, value, icon: Icon, trend, description, href, v
                     <p className="mt-1 md:mt-2 text-xl md:text-2xl font-bold text-[var(--foreground)] truncate">{value}</p>
                     {description && (
                         <p className="mt-1 text-[10px] md:text-xs text-[var(--muted)] line-clamp-2">{description}</p>
-                    )}
-                    {trend && (
-                        <div className="mt-1 md:mt-2 flex flex-wrap items-center gap-1">
-                            <span
-                                className={`text-[10px] md:text-xs font-medium ${trend.isPositive ? "text-[var(--success)]" : "text-[var(--destructive)]"
-                                    }`}
-                            >
-                                {trend.isPositive ? "+" : "-"}
-                                {Math.abs(trend.value)}%
-                            </span>
-                            <span className="text-[10px] md:text-xs text-[var(--muted)] truncate">vs mes anterior</span>
-                        </div>
                     )}
                 </div>
                 <div

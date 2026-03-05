@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Users, Lock, X, Calendar, Plus, Trash2, User, Building2 } from "lucide-react";
+import { Search, Users, Lock, X, Calendar, Plus, Trash2, User, Building2, Trophy, Landmark } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { formatChileanRut, RUT_FORMATTED_MAX_LENGTH } from "@/lib/utils/rut";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
@@ -40,7 +40,7 @@ const statusLabels: Record<string, string> = {
 
 export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
   const router = useRouter();
-  const [guestTypeTab, setGuestTypeTab] = useState<"person" | "company">("person");
+  const [guestTypeTab, setGuestTypeTab] = useState<"personas" | "club" | "delegaciones">("personas");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [guestToEdit, setGuestToEdit] = useState<GuestRow | null>(null);
@@ -108,7 +108,12 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
   }, [updateState?.success, router]);
 
   const filtered = guests.filter((g) => {
-    const matchType = guestTypeTab === "company" ? g.type === "COMPANY" : g.type === "PERSON";
+    const matchType =
+      guestTypeTab === "personas"
+        ? g.type === "PERSON"
+        : guestTypeTab === "club"
+          ? g.type === "CLUB"
+          : (g.type === "DELEGACION" || g.type === "COMPANY");
     if (!matchType) return false;
     const status = toStatus(g);
     const matchStatus = !statusFilter || status === statusFilter;
@@ -164,23 +169,31 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
         </div>
       </div>
 
-      {/* Tabs Persona particular / Empresas */}
+      {/* Tabs Personas / Club / Delegaciones */}
       <div className="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/30 p-1">
         <button
           type="button"
-          onClick={() => setGuestTypeTab("person")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "person" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+          onClick={() => setGuestTypeTab("personas")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "personas" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
         >
           <User className="h-4 w-4" />
-          Persona particular
+          Personas
         </button>
         <button
           type="button"
-          onClick={() => setGuestTypeTab("company")}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "company" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+          onClick={() => setGuestTypeTab("club")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "club" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
         >
-          <Building2 className="h-4 w-4" />
-          Empresas
+          <Trophy className="h-4 w-4" />
+          Club
+        </button>
+        <button
+          type="button"
+          onClick={() => setGuestTypeTab("delegaciones")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all ${guestTypeTab === "delegaciones" ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+        >
+          <Landmark className="h-4 w-4" />
+          Delegaciones
         </button>
       </div>
 
@@ -211,7 +224,11 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
       <div className="space-y-3">
         {filtered.length === 0 ? (
           <p className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-8 text-center text-[var(--muted)]">
-            {guestTypeTab === "person" ? "No hay personas particulares que coincidan con los filtros." : "No hay empresas que coincidan con los filtros."}
+            {guestTypeTab === "personas"
+              ? "No hay personas que coincidan con los filtros."
+              : guestTypeTab === "club"
+                ? "No hay registros de club que coincidan con los filtros."
+                : "No hay delegaciones que coincidan con los filtros."}
           </p>
         ) : (
           filtered.map((guest) => {
@@ -229,8 +246,22 @@ export function AdminGuestsView({ guests }: { guests: GuestRow[] }) {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-semibold text-[var(--foreground)] truncate">{guest.fullName}</h3>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${guest.type === "COMPANY" ? "bg-[var(--secondary)]/20 text-[var(--secondary)]" : "bg-[var(--muted)]/20 text-[var(--muted)]"}`}>
-                          {guest.type === "COMPANY" ? "Empresa" : "Persona"}
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                            guest.type === "COMPANY" || guest.type === "DELEGACION"
+                              ? "bg-[var(--secondary)]/20 text-[var(--secondary)]"
+                              : guest.type === "CLUB"
+                                ? "bg-[var(--primary)]/20 text-[var(--primary)]"
+                                : "bg-[var(--muted)]/20 text-[var(--muted)]"
+                          }`}
+                        >
+                          {guest.type === "COMPANY"
+                            ? "Empresa"
+                            : guest.type === "DELEGACION"
+                              ? "Delegación"
+                              : guest.type === "CLUB"
+                                ? "Club"
+                                : "Persona"}
                         </span>
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[status]}`}>
                           {statusLabels[status]}

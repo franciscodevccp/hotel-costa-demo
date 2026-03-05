@@ -103,8 +103,10 @@ enum RoomStatus {
 
 // ─── Guest ────────────────────────────────────────────────────────────────
 enum GuestType {
-  PERSON
-  COMPANY
+  PERSON      // Personas
+  CLUB        // Club
+  DELEGACION  // Delegaciones
+  COMPANY     // Legado: empresas (se muestra en Delegaciones)
 }
 
 model Guest {
