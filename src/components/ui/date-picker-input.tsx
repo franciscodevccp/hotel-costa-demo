@@ -25,7 +25,7 @@ export interface DatePickerInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  /** Fecha mínima en yyyy-MM-dd; deshabilita días anteriores en el calendario */
+  /** Sin uso: no se aplican restricciones; se puede elegir cualquier fecha */
   minDate?: string;
   id?: string;
   className?: string;
@@ -36,7 +36,6 @@ export function DatePickerInput({
   value,
   onChange,
   placeholder = "dd/mm/aaaa",
-  minDate,
   id,
   className = "",
   "aria-label": ariaLabel,
@@ -159,7 +158,7 @@ export function DatePickerInput({
               selected={selectedDate}
               onSelect={handleSelect}
               defaultMonth={selectedDate ?? new Date()}
-              disabled={minDate ? { before: parse(minDate, "yyyy-MM-dd", new Date()) } : undefined}
+              disabled={undefined}
               formatters={{
                 formatWeekdayName: (weekday) => WEEKDAY_SHORT_CL[weekday.getDay()],
               }}

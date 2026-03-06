@@ -146,3 +146,35 @@ export async function updateProductLastDates(
   revalidatePath("/dashboard/inventory");
   return {};
 }
+
+export type ResetEntryExitCountersState = { error?: string };
+
+/** Borra todos los movimientos de inventario del establecimiento y limpia últ. entrada/salida. El stock de cada producto no se modifica; Entradas y Salidas pasan a 0. */
+export async function resetEntryExitCounters(): Promise<ResetEntryExitCountersState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  const establishmentId = session.user.establishmentId;
+  const productIds = await prisma.inventoryProduct.findMany({
+    where: { establishmentId },
+    select: { id: true },
+  }).then((rows) => rows.map((r) => r.id));
+
+  if (productIds.length === 0) {
+    revalidatePath("/dashboard/inventory");
+    return {};
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.inventoryMovement.deleteMany({ where: { productId: { in: productIds } } });
+    await tx.inventoryProduct.updateMany({
+      where: { id: { in: productIds } },
+      data: { lastEntryAt: null, lastExitAt: null },
+    });
+  });
+
+  revalidatePath("/dashboard/inventory");
+  return {};
+}

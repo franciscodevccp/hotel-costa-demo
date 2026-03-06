@@ -215,7 +215,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
       stock: newProduct.stock,
       minStock: newProduct.minStock,
       unit: newProduct.unit,
-      entradas: newProduct.stock,
+      entradas: 0,
       salidas: 0,
       folio: undefined,
     };

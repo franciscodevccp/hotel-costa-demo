@@ -646,7 +646,6 @@ export function AdminReservationsView({
                             value={newCheckIn}
                             onChange={setNewCheckIn}
                             placeholder="dd/mm/aaaa"
-                            minDate={format(startOfDay(new Date()), "yyyy-MM-dd")}
                             aria-label="Fecha de check-in"
                           />
                         </div>
@@ -656,7 +655,6 @@ export function AdminReservationsView({
                             value={newCheckOut}
                             onChange={setNewCheckOut}
                             placeholder="dd/mm/aaaa"
-                            minDate={newCheckIn || format(startOfDay(new Date()), "yyyy-MM-dd")}
                             aria-label="Fecha de check-out"
                           />
                         </div>
