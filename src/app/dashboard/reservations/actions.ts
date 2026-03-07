@@ -47,10 +47,6 @@ export async function createReservation(
   if (Number.isNaN(checkOut.getTime())) return { error: "Fecha de check-out no válida" };
   if (checkOut < checkIn) return { error: "El check-out no puede ser anterior al check-in" };
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  if (checkIn < todayStart) return { error: "El check-in no puede ser una fecha anterior a hoy" };
-
   const numGuests = numGuestsStr ? parseInt(numGuestsStr, 10) : 1;
   if (Number.isNaN(numGuests) || numGuests < 1) return { error: "Número de huéspedes debe ser al menos 1" };
 
@@ -202,10 +198,6 @@ export async function createReservationsBulk(payload: {
     return { error: "Fechas no válidas" };
   }
   if (checkOut < checkIn) return { error: "El check-out no puede ser anterior al check-in" };
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  if (checkIn < todayStart) return { error: "El check-in no puede ser anterior a hoy" };
 
   const VALID_PAYMENT_METHODS = ["CASH", "DEBIT", "CREDIT", "TRANSFER", "OTHER"] as const;
   const method = VALID_PAYMENT_METHODS.includes(payload.downPaymentMethod as (typeof VALID_PAYMENT_METHODS)[number])
