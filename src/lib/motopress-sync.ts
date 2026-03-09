@@ -143,6 +143,12 @@ export async function syncMotopressBookings(): Promise<SyncMotopressResult> {
 
       if (existing) {
         reservationsAlreadyInSystem++;
+        // No sobrescribir estados que solo se gestionan en el hotel (check-in/check-out/no show).
+        // MotoPress solo tiene pending/confirmed/cancelled; si ya marcaron check-in aquí, no volver a "Confirmada".
+        const localOnlyStatuses: ReservationStatus[] = ["CHECKED_IN", "CHECKED_OUT", "NO_SHOW"];
+        if (localOnlyStatuses.includes(existing.status)) {
+          continue;
+        }
         const newStatus = mapStatus(mp.status);
         if (existing.status !== newStatus) {
           await prisma.reservation.update({
