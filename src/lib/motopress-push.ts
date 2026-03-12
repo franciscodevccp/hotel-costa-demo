@@ -84,6 +84,44 @@ export async function pushBookingToMotopress(params: PushBookingParams): Promise
 }
 
 /**
+ * Actualiza las fechas de una reserva existente en MotoPress (calendario de la web).
+ * Devuelve true si la API aceptó el cambio.
+ */
+export async function updateBookingDatesInMotopress(
+  motopressBookingId: string,
+  checkIn: Date,
+  checkOut: Date
+): Promise<boolean> {
+  if (!MOTOPRESS_URL) return false;
+  try {
+    const body = {
+      check_in_date: checkIn.toISOString().split("T")[0],
+      check_out_date: checkOut.toISOString().split("T")[0],
+    };
+    const response = await fetch(
+      `${MOTOPRESS_URL.replace(/\/$/, "")}/wp-json/mphb/v1/bookings/${motopressBookingId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Basic ${getAuthHeader()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("[motopress-push] Error al actualizar fechas en MotoPress:", response.status, error.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("[motopress-push] Error de conexión al actualizar fechas en MotoPress:", error);
+    return false;
+  }
+}
+
+/**
  * Cancela una reserva en MotoPress para liberar las fechas en la web.
  */
 export async function cancelBookingInMotopress(motopressBookingId: string): Promise<boolean> {

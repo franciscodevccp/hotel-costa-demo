@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Package,
@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  createProduct as createProductAction,
   deleteProduct as deleteProductAction,
   registerMovement as registerMovementAction,
   updateProductLastDates as updateProductLastDatesAction,
@@ -96,6 +97,8 @@ export function InventoryView({ products: initialProducts }: { products: Product
   const router = useRouter();
   const [products, setProducts] = useState<InventoryProduct[]>(() => initialProducts.map(toInventoryProduct));
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [addProductSubmitting, setAddProductSubmitting] = useState(false);
+  const [addProductError, setAddProductError] = useState<string | null>(null);
   const [showMovementModal, setShowMovementModal] = useState<{
     product: InventoryProduct;
     type: "entrada" | "salida";
@@ -117,7 +120,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
   // Formulario agregar producto
   const [newProduct, setNewProduct] = useState({
     name: "",
-    category: "Aseo",
+    category: "",
     stock: 0,
     minStock: 5,
     unit: "unidad",
@@ -143,6 +146,13 @@ export function InventoryView({ products: initialProducts }: { products: Product
   const [editLastDateError, setEditLastDateError] = useState<string | null>(null);
 
   const lowStockProducts = products.filter((p) => p.stock < p.minStock);
+
+  // Categorías: las que ya existen en productos + listado base (para que coincida con seed/otros)
+  const categorySuggestions = useMemo(() => {
+    const fromProducts = products.map((p) => p.category).filter(Boolean);
+    const base = ["Aseo", "Bodega", "Limpieza", "Congelados", "Refrigerador", "Ropa de cama", "Desayuno", "Otros"];
+    return [...new Set([...fromProducts, ...base])].sort((a, b) => a.localeCompare(b, "es"));
+  }, [products]);
   const hasLowStock = lowStockProducts.length > 0;
 
   // Sincronizar lista cuando el servidor devuelve nuevos datos (p. ej. después de registrar movimiento)
@@ -205,23 +215,26 @@ export function InventoryView({ products: initialProducts }: { products: Product
     }
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
+  const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProduct.name.trim()) return;
-    const product: InventoryProduct = {
-      id: String(Date.now()),
-      name: newProduct.name.trim(),
-      category: newProduct.category,
-      stock: newProduct.stock,
-      minStock: newProduct.minStock,
-      unit: newProduct.unit,
-      entradas: 0,
-      salidas: 0,
-      folio: undefined,
-    };
-    setProducts((prev) => [...prev, product]);
-    setNewProduct({ name: "", category: "Aseo", stock: 0, minStock: 5, unit: "unidad" });
+    setAddProductError(null);
+    setAddProductSubmitting(true);
+    const result = await createProductAction(
+      newProduct.name.trim(),
+      newProduct.category.trim() || "Otros",
+      newProduct.stock,
+      newProduct.minStock,
+      newProduct.unit || "unidad"
+    );
+    setAddProductSubmitting(false);
+    if (result.error) {
+      setAddProductError(result.error);
+      return;
+    }
+    setNewProduct({ name: "", category: "", stock: 0, minStock: 5, unit: "unidad" });
     setShowAddProduct(false);
+    router.refresh();
   };
 
   const handleMovement = async (e: React.FormEvent) => {
@@ -338,7 +351,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
           </p>
         </div>
         <button
-          onClick={() => setShowAddProduct(true)}
+          onClick={() => { setShowAddProduct(true); setAddProductError(null); }}
           className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md active:scale-95 w-full md:w-auto"
         >
           <Plus className="h-4 w-4" />
@@ -602,6 +615,11 @@ export function InventoryView({ products: initialProducts }: { products: Product
               Agregar producto
             </h3>
             <form onSubmit={handleAddProduct} className="mt-4 space-y-4">
+              {addProductError && (
+                <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                  {addProductError}
+                </p>
+              )}
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
                   Nombre
@@ -612,7 +630,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
                   onChange={(e) =>
                     setNewProduct((p) => ({ ...p, name: e.target.value }))
                   }
-                  placeholder="Ej. Jabón líquido"
+                  placeholder="Ej. Queso en lámina"
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   required
                 />
@@ -621,20 +639,21 @@ export function InventoryView({ products: initialProducts }: { products: Product
                 <label className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
                   Categoría
                 </label>
-                <CustomSelect
+                <input
+                  type="text"
+                  list="inventory-category-list"
                   value={newProduct.category}
-                  onChange={(v: string) =>
-                    setNewProduct((p) => ({ ...p, category: v }))
+                  onChange={(e) =>
+                    setNewProduct((p) => ({ ...p, category: e.target.value }))
                   }
-                  placeholder="Seleccionar categoría"
-                  options={[
-                    { value: "Aseo", label: "Aseo" },
-                    { value: "Ropa de cama", label: "Ropa de cama" },
-                    { value: "Desayuno", label: "Desayuno" },
-                    { value: "Otros", label: "Otros" },
-                  ]}
-                  className="w-full"
+                  placeholder="Ej. Bodega, Limpieza, Congelados... (puede escribir una nueva)"
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                 />
+                <datalist id="inventory-category-list">
+                  {categorySuggestions.map((cat) => (
+                    <option key={cat} value={cat} />
+                  ))}
+                </datalist>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -694,16 +713,18 @@ export function InventoryView({ products: initialProducts }: { products: Product
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddProduct(false)}
-                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)]"
+                  onClick={() => { setShowAddProduct(false); setAddProductError(null); }}
+                  disabled={addProductSubmitting}
+                  className="flex-1 rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                  disabled={addProductSubmitting}
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                 >
-                  Agregar
+                  {addProductSubmitting ? "Guardando…" : "Agregar"}
                 </button>
               </div>
             </form>

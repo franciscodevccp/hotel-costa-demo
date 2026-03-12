@@ -4,6 +4,52 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+export type CreateProductState = { error?: string };
+
+/** Crea un producto de inventario en la base de datos. */
+export async function createProduct(
+  name: string,
+  category: string,
+  stock: number,
+  minStock: number,
+  unit: string
+): Promise<CreateProductState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  const trimmedName = name?.trim() ?? "";
+  if (!trimmedName) return { error: "El nombre del producto es obligatorio" };
+
+  const establishmentId = session.user.establishmentId;
+  const stockNum = Math.max(0, Math.floor(Number(stock)));
+  const minStockNum = Math.max(0, Math.floor(Number(minStock)));
+  const categoryTrim = (category?.trim() ?? "") || "Otros";
+  const unitTrim = (unit?.trim() ?? "") || "unidad";
+
+  const existing = await prisma.inventoryProduct.findFirst({
+    where: { establishmentId, name: trimmedName },
+  });
+  if (existing) {
+    return { error: "Ya existe un producto con ese nombre" };
+  }
+
+  await prisma.inventoryProduct.create({
+    data: {
+      establishmentId,
+      name: trimmedName,
+      category: categoryTrim,
+      stock: stockNum,
+      minStock: minStockNum,
+      unit: unitTrim,
+    },
+  });
+
+  revalidatePath("/dashboard/inventory");
+  return {};
+}
+
 export type DeleteProductState = { error?: string };
 
 export async function deleteProduct(productId: string): Promise<DeleteProductState> {

@@ -8,7 +8,7 @@ import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, updateReservationDates, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -114,6 +114,7 @@ export function AdminReservationsView({
 }) {
     const router = useRouter();
     const [statusFilter, setStatusFilter] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
     const [activeTab, setActiveTab] = useState<"resumen" | "calendario">("resumen");
     const [calendarDate, setCalendarDate] = useState(new Date());
     const [selectedReservation, setSelectedReservation] = useState<ReservationDisplay | null>(null);
@@ -140,6 +141,11 @@ export function AdminReservationsView({
     const receptionistFiltered = newProcessedByName.trim()
       ? receptionistNamesList.filter((name) => normalizeForSearch(name).includes(normalizeForSearch(newProcessedByName)))
       : receptionistNamesList;
+    const [editDatesOpen, setEditDatesOpen] = useState(false);
+    const [editCheckIn, setEditCheckIn] = useState("");
+    const [editCheckOut, setEditCheckOut] = useState("");
+    const [updateDatesSaving, setUpdateDatesSaving] = useState(false);
+    const [updateDatesError, setUpdateDatesError] = useState<string | null>(null);
     const [entryCardUrlOverride, setEntryCardUrlOverride] = useState<Record<string, string>>({});
     const [uploadingEntryCard, setUploadingEntryCard] = useState(false);
     const [entryCardPreviewUrl, setEntryCardPreviewUrl] = useState<string | null>(null);
@@ -326,9 +332,17 @@ export function AdminReservationsView({
       };
     }, [router]);
 
-    const filteredReservations = statusFilter
-        ? reservations.filter((r) => r.status === statusFilter)
-        : reservations;
+    const filteredReservations = reservations.filter((r) => {
+        const matchStatus = !statusFilter || r.status === statusFilter;
+        if (!matchStatus) return false;
+        if (!searchQuery.trim()) return true;
+        const q = normalizeForSearch(searchQuery);
+        return (
+            normalizeForSearch(r.guest_name).includes(q) ||
+            (r.guest_email && normalizeForSearch(r.guest_email).includes(q)) ||
+            (r.room_number && normalizeForSearch(r.room_number).includes(q))
+        );
+    });
 
     const statusColors = {
         pending: "bg-[var(--warning)]/10 text-[var(--warning)] border-[var(--warning)]/20",
@@ -1287,6 +1301,8 @@ export function AdminReservationsView({
                     <input
                         type="text"
                         placeholder="Buscar por nombre, email o habitación..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2.5 pl-10 pr-4 text-sm shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:shadow-md"
                     />
                 </div>
@@ -1681,7 +1697,7 @@ export function AdminReservationsView({
                                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10">
                                             <Calendar className="h-5 w-5 text-[var(--primary)]" />
                                         </div>
-                                        <div>
+                                        <div className="min-w-0 flex-1">
                                             <p className="text-sm font-medium text-[var(--foreground)]">
                                                 {formatDate(selectedReservation.check_in)} — {formatDate(selectedReservation.check_out)}
                                             </p>
@@ -1693,7 +1709,79 @@ export function AdminReservationsView({
                                                 {selectedReservation.guests} {selectedReservation.guests === 1 ? "huésped" : "huéspedes"}
                                             </p>
                                         </div>
+                                        {!editDatesOpen && ["pending", "confirmed", "checked_in"].includes(selectedReservation.status) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditDatesOpen(true);
+                                                    setEditCheckIn(selectedReservation.check_in.slice(0, 10));
+                                                    setEditCheckOut(selectedReservation.check_out.slice(0, 10));
+                                                    setUpdateDatesError(null);
+                                                }}
+                                                className="shrink-0 rounded-lg border border-[var(--primary)]/50 bg-[var(--primary)]/5 px-3 py-2 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10"
+                                            >
+                                                Cambiar fechas
+                                            </button>
+                                        )}
                                     </div>
+                                    {editDatesOpen && (
+                                        <div className="border-t border-[var(--border)] bg-[var(--background)]/60 p-4 space-y-3">
+                                            {updateDatesError && (
+                                                <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                                                    {updateDatesError}
+                                                </p>
+                                            )}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nuevo check-in</label>
+                                                    <DatePickerInput
+                                                        value={editCheckIn}
+                                                        onChange={setEditCheckIn}
+                                                        placeholder="dd/mm/aaaa"
+                                                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nuevo check-out</label>
+                                                    <DatePickerInput
+                                                        value={editCheckOut}
+                                                        onChange={setEditCheckOut}
+                                                        placeholder="dd/mm/aaaa"
+                                                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setEditDatesOpen(false); setUpdateDatesError(null); }}
+                                                    disabled={updateDatesSaving}
+                                                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                                                >
+                                                    Cancelar
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={updateDatesSaving || !editCheckIn || !editCheckOut}
+                                                    onClick={async () => {
+                                                        setUpdateDatesError(null);
+                                                        setUpdateDatesSaving(true);
+                                                        const result = await updateReservationDates(selectedReservation.id, editCheckIn, editCheckOut);
+                                                        setUpdateDatesSaving(false);
+                                                        if (result.error) {
+                                                            setUpdateDatesError(result.error);
+                                                            return;
+                                                        }
+                                                        setEditDatesOpen(false);
+                                                        router.refresh();
+                                                    }}
+                                                    className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                                >
+                                                    {updateDatesSaving ? "Guardando…" : "Guardar fechas"}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </section>
 

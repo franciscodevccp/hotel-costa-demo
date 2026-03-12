@@ -5,7 +5,7 @@ import { PaymentStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncMotopressBookings } from "@/lib/motopress-sync";
-import { pushBookingToMotopress, cancelBookingInMotopress } from "@/lib/motopress-push";
+import { pushBookingToMotopress, cancelBookingInMotopress, updateBookingDatesInMotopress } from "@/lib/motopress-push";
 
 export type CreateReservationState = { error?: string; success?: boolean };
 
@@ -387,6 +387,85 @@ export async function updateReservationStatus(
     const message = e instanceof Error ? e.message : "Error al actualizar la reserva";
     return { error: message };
   }
+}
+
+export type UpdateReservationDatesState = { error?: string; success?: boolean };
+
+/** Cambiar las fechas de check-in y check-out de una reserva existente. Comprueba que la habitación siga disponible. */
+export async function updateReservationDates(
+  reservationId: string,
+  checkInStr: string,
+  checkOutStr: string
+): Promise<UpdateReservationDatesState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+
+  const establishmentId = session.user.establishmentId;
+  const [yIn, mIn, dIn] = (checkInStr ?? "").split("-").map(Number);
+  const [yOut, mOut, dOut] = (checkOutStr ?? "").split("-").map(Number);
+  if (Number.isNaN(yIn) || Number.isNaN(mIn) || Number.isNaN(dIn) || Number.isNaN(yOut) || Number.isNaN(mOut) || Number.isNaN(dOut)) {
+    return { error: "Fechas no válidas" };
+  }
+
+  const newCheckIn = new Date(yIn, mIn - 1, dIn);
+  const newCheckOut = new Date(yOut, mOut - 1, dOut);
+  if (newCheckOut < newCheckIn) {
+    return { error: "El check-out no puede ser anterior al check-in" };
+  }
+
+  const reservation = await prisma.reservation.findFirst({
+    where: { id: reservationId, establishmentId },
+    select: { id: true, roomId: true, status: true, motopressId: true },
+  });
+  if (!reservation) return { error: "Reserva no encontrada" };
+
+  const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
+  if (!activeStatuses.includes(reservation.status as (typeof activeStatuses)[number])) {
+    return { error: "Solo se pueden cambiar fechas en reservas pendientes, confirmadas o con check-in realizado" };
+  }
+
+  const otherInSameRoom = await prisma.reservation.findMany({
+    where: {
+      establishmentId,
+      roomId: reservation.roomId,
+      id: { not: reservationId },
+      status: { notIn: ["CANCELLED", "NO_SHOW", "CHECKED_OUT"] },
+    },
+    select: { checkIn: true, checkOut: true, status: true },
+  });
+
+  for (const other of otherInSameRoom) {
+    const otherStart = other.checkIn.getTime();
+    const otherEnd = other.checkOut.getTime();
+    const newStart = newCheckIn.getTime();
+    const newEnd = newCheckOut.getTime();
+    const overlap = otherStart < newEnd && (other.status === "CHECKED_OUT" ? otherEnd > newStart : otherEnd >= newStart);
+    if (overlap) {
+      return { error: "La habitación no está disponible en las fechas elegidas" };
+    }
+  }
+
+  const checkInDate = new Date(newCheckIn.getFullYear(), newCheckIn.getMonth(), newCheckIn.getDate(), 0, 0, 0, 0);
+  const checkOutDate = new Date(newCheckOut.getFullYear(), newCheckOut.getMonth(), newCheckOut.getDate(), 0, 0, 0, 0);
+
+  await prisma.reservation.updateMany({
+    where: { id: reservationId, establishmentId },
+    data: { checkIn: checkInDate, checkOut: checkOutDate },
+  });
+
+  if (reservation.motopressId) {
+    try {
+      await updateBookingDatesInMotopress(reservation.motopressId, checkInDate, checkOutDate);
+    } catch {
+      // No fallar la acción: las fechas ya se actualizaron en MiHostal; la web se puede corregir después
+    }
+  }
+
+  revalidatePath("/dashboard/reservations");
+  revalidatePath("/dashboard");
+  return { success: true };
 }
 
 export type UpdateEntryCardState = { error?: string; success?: boolean };
