@@ -16,6 +16,9 @@ export interface CustomSelectProps {
   placeholder: string;
   className?: string;
   "aria-label"?: string;
+  /** Si se pasan, el dropdown se controla desde fuera (ej. abrir al escribir en un campo de búsqueda). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function CustomSelect({
@@ -25,8 +28,17 @@ export function CustomSelect({
   placeholder,
   className = "",
   "aria-label": ariaLabel,
+  open: controlledOpen,
+  onOpenChange,
 }: CustomSelectProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    const value = typeof next === "function" ? next(open) : next;
+    if (isControlled && onOpenChange) onOpenChange(value);
+    else setInternalOpen(value);
+  };
   const [position, setPosition] = useState<{
     top?: number;
     bottom?: number;

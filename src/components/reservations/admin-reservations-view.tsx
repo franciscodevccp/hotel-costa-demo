@@ -124,6 +124,8 @@ export function AdminReservationsView({
     const [isDeleting, setIsDeleting] = useState(false);
     const [confirmModal, setConfirmModal] = useState<{ type: "no_show" | "cancel"; reservation: ReservationDisplay } | null>(null);
     const [newGuestId, setNewGuestId] = useState("");
+    const [guestSearch, setGuestSearch] = useState("");
+    const [guestDropdownOpen, setGuestDropdownOpen] = useState(false);
     const [roomLines, setRoomLines] = useState<RoomLine[]>([{ roomId: "", numGuests: 1 }]);
     const [newCheckIn, setNewCheckIn] = useState("");
     const [newCheckOut, setNewCheckOut] = useState("");
@@ -297,6 +299,8 @@ export function AdminReservationsView({
     useEffect(() => {
       if (newReservationOpen) {
         setNewGuestId("");
+        setGuestSearch("");
+        setGuestDropdownOpen(false);
         setRoomLines([{ roomId: "", numGuests: 1 }]);
         setNewCheckIn("");
         setNewCheckOut("");
@@ -630,15 +634,50 @@ export function AdminReservationsView({
                       </div>
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Huésped</label>
+                        <div className="mb-2">
+                          <input
+                            type="text"
+                            value={guestSearch}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setGuestSearch(v);
+                              if (v.trim()) setGuestDropdownOpen(true);
+                            }}
+                            onFocus={() => setGuestDropdownOpen(true)}
+                            placeholder="Buscar por nombre o email..."
+                            autoComplete="off"
+                            spellCheck={false}
+                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                            aria-label="Buscar huésped por nombre o email"
+                          />
+                          <p className="mt-1 text-xs text-[var(--muted)]">
+                            La búsqueda ignora tildes (ej. &quot;andres&quot; encuentra &quot;Andrés&quot;). La lista se abre al escribir o al hacer foco.
+                          </p>
+                        </div>
                         <div className="flex gap-2">
                           <div className="flex-1 min-w-0">
                             <CustomSelect
                               value={newGuestId}
-                              onChange={setNewGuestId}
-                              options={localGuests.map((g) => ({
-                                value: g.id,
-                                label: `${g.fullName}${g.email ? ` (${g.email})` : ""} — ${g.type === "COMPANY" ? "Empresa" : g.type === "DELEGACION" ? "Delegación" : g.type === "CLUB" ? "Club" : "Persona"}`,
-                              }))}
+                              onChange={(id) => {
+                                setNewGuestId(id);
+                                setGuestDropdownOpen(false);
+                              }}
+                              open={guestDropdownOpen}
+                              onOpenChange={setGuestDropdownOpen}
+                              options={(() => {
+                                const q = guestSearch.trim() ? normalizeForSearch(guestSearch) : "";
+                                const filtered = q
+                                  ? localGuests.filter(
+                                      (g) =>
+                                        normalizeForSearch(g.fullName).includes(q) ||
+                                        (g.email && normalizeForSearch(g.email).includes(q))
+                                    )
+                                  : localGuests;
+                                return filtered.map((g) => ({
+                                  value: g.id,
+                                  label: `${g.fullName}${g.email ? ` (${g.email})` : ""} — ${g.type === "COMPANY" ? "Empresa" : g.type === "DELEGACION" ? "Delegación" : g.type === "CLUB" ? "Club" : "Persona"}`,
+                                }));
+                              })()}
                               placeholder="Seleccionar huésped"
                               aria-label="Seleccionar huésped"
                             />
@@ -657,6 +696,17 @@ export function AdminReservationsView({
                             No hay huéspedes. Haz clic en &quot;+ Nuevo&quot; para crear uno.
                           </p>
                         )}
+                        {localGuests.length > 0 && guestSearch.trim() && (() => {
+                          const q = normalizeForSearch(guestSearch);
+                          const count = localGuests.filter(
+                            (g) =>
+                              normalizeForSearch(g.fullName).includes(q) ||
+                              (g.email && normalizeForSearch(g.email).includes(q))
+                          ).length;
+                          return count === 0 ? (
+                            <p className="mt-1.5 text-xs text-[var(--muted)]">Ningún huésped coincide con la búsqueda.</p>
+                          ) : null;
+                        })()}
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
