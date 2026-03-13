@@ -5,7 +5,7 @@ import { PaymentStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncMotopressBookings } from "@/lib/motopress-sync";
-import { pushBookingToMotopress, cancelBookingInMotopress, updateBookingDatesInMotopress } from "@/lib/motopress-push";
+import { pushBookingToMotopress, cancelBookingInMotopress, updateBookingDatesInMotopress, updateBookingRoomInMotopress } from "@/lib/motopress-push";
 
 export type CreateReservationState = { error?: string; success?: boolean };
 
@@ -460,6 +460,82 @@ export async function updateReservationDates(
       await updateBookingDatesInMotopress(reservation.motopressId, checkInDate, checkOutDate);
     } catch {
       // No fallar la acción: las fechas ya se actualizaron en MiHostal; la web se puede corregir después
+    }
+  }
+
+  revalidatePath("/dashboard/reservations");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export type UpdateReservationRoomState = { error?: string; success?: boolean };
+
+/** Cambiar la habitación de una reserva existente. Comprueba que la nueva habitación esté libre en las fechas de la reserva. */
+export async function updateReservationRoom(
+  reservationId: string,
+  newRoomId: string
+): Promise<UpdateReservationRoomState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  const establishmentId = session.user.establishmentId;
+
+  const reservation = await prisma.reservation.findFirst({
+    where: { id: reservationId, establishmentId },
+    select: { id: true, roomId: true, checkIn: true, checkOut: true, status: true, motopressId: true, numGuests: true },
+  });
+  if (!reservation) return { error: "Reserva no encontrada" };
+
+  const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
+  if (!activeStatuses.includes(reservation.status as (typeof activeStatuses)[number])) {
+    return { error: "Solo se puede cambiar la habitación en reservas pendientes, confirmadas o con check-in realizado" };
+  }
+
+  if (newRoomId === reservation.roomId) {
+    return { error: "La habitación seleccionada es la misma" };
+  }
+
+  const newRoom = await prisma.room.findFirst({
+    where: { id: newRoomId, establishmentId },
+    select: { id: true, externalId: true },
+  });
+  if (!newRoom) return { error: "Habitación no encontrada" };
+
+  const checkIn = reservation.checkIn;
+  const checkOut = reservation.checkOut;
+
+  const otherInNewRoom = await prisma.reservation.findMany({
+    where: {
+      establishmentId,
+      roomId: newRoomId,
+      id: { not: reservationId },
+      status: { notIn: ["CANCELLED", "NO_SHOW", "CHECKED_OUT"] },
+    },
+    select: { checkIn: true, checkOut: true, status: true },
+  });
+
+  for (const other of otherInNewRoom) {
+    const otherStart = other.checkIn.getTime();
+    const otherEnd = other.checkOut.getTime();
+    const resStart = checkIn.getTime();
+    const resEnd = checkOut.getTime();
+    const overlap = otherStart < resEnd && (other.status === "CHECKED_OUT" ? otherEnd > resStart : otherEnd >= resStart);
+    if (overlap) {
+      return { error: "La habitación no está disponible en las fechas de esta reserva" };
+    }
+  }
+
+  await prisma.reservation.updateMany({
+    where: { id: reservationId, establishmentId },
+    data: { roomId: newRoomId },
+  });
+
+  if (reservation.motopressId && newRoom.externalId) {
+    try {
+      await updateBookingRoomInMotopress(reservation.motopressId, newRoom.externalId, reservation.numGuests);
+    } catch {
+      // No fallar: la habitación ya se actualizó en MiHostal
     }
   }
 

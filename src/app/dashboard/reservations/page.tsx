@@ -33,6 +33,7 @@ export default async function ReservationsPage() {
         guest_email: guest.email ?? "",
         guest_phone: guest.phone ?? "",
         guest_type: guest.type,
+        room_id: r.roomId,
         room_number: room.roomNumber,
         room_type: room.type,
         check_in: format(r.checkIn, "yyyy-MM-dd"),

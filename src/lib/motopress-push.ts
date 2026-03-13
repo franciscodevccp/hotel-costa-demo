@@ -122,6 +122,47 @@ export async function updateBookingDatesInMotopress(
 }
 
 /**
+ * Actualiza la habitación (accommodation) de una reserva en MotoPress.
+ * Devuelve true si la API aceptó el cambio.
+ */
+export async function updateBookingRoomInMotopress(
+  motopressBookingId: string,
+  newAccommodationExternalId: string,
+  adults: number
+): Promise<boolean> {
+  if (!MOTOPRESS_URL) return false;
+  const accommodationId = parseInt(newAccommodationExternalId, 10);
+  if (Number.isNaN(accommodationId)) return false;
+  try {
+    const body = {
+      reserved_accommodations: [
+        { accommodation: accommodationId, adults, children: 0 },
+      ],
+    };
+    const response = await fetch(
+      `${MOTOPRESS_URL.replace(/\/$/, "")}/wp-json/mphb/v1/bookings/${motopressBookingId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Basic ${getAuthHeader()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("[motopress-push] Error al actualizar habitación en MotoPress:", response.status, error.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("[motopress-push] Error de conexión al actualizar habitación en MotoPress:", error);
+    return false;
+  }
+}
+
+/**
  * Cancela una reserva en MotoPress para liberar las fechas en la web.
  */
 export async function cancelBookingInMotopress(motopressBookingId: string): Promise<boolean> {

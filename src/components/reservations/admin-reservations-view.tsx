@@ -8,7 +8,7 @@ import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, updateReservationDates, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, updateReservationDates, updateReservationRoom, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -19,6 +19,7 @@ export interface ReservationDisplay {
     guest_email: string;
     guest_phone: string;
     guest_type?: "PERSON" | "COMPANY" | "CLUB" | "DELEGACION";
+    room_id: string;
     room_number: string;
     room_type: string;
     check_in: string;
@@ -146,6 +147,10 @@ export function AdminReservationsView({
     const [editCheckOut, setEditCheckOut] = useState("");
     const [updateDatesSaving, setUpdateDatesSaving] = useState(false);
     const [updateDatesError, setUpdateDatesError] = useState<string | null>(null);
+    const [editRoomOpen, setEditRoomOpen] = useState(false);
+    const [editRoomId, setEditRoomId] = useState("");
+    const [updateRoomSaving, setUpdateRoomSaving] = useState(false);
+    const [updateRoomError, setUpdateRoomError] = useState<string | null>(null);
     const [entryCardUrlOverride, setEntryCardUrlOverride] = useState<Record<string, string>>({});
     const [uploadingEntryCard, setUploadingEntryCard] = useState(false);
     const [entryCardPreviewUrl, setEntryCardPreviewUrl] = useState<string | null>(null);
@@ -1781,6 +1786,98 @@ export function AdminReservationsView({
                                                 </button>
                                             </div>
                                         </div>
+                                    )}
+                                    {["pending", "confirmed", "checked_in"].includes(selectedReservation.status) && (
+                                        <>
+                                            {!editRoomOpen ? (
+                                                <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3">
+                                                    <span className="text-xs text-[var(--muted)]">Habitación</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setEditRoomOpen(true);
+                                                            setEditRoomId(selectedReservation.room_id);
+                                                            setUpdateRoomError(null);
+                                                        }}
+                                                        className="rounded-lg border border-[var(--primary)]/50 bg-[var(--primary)]/5 px-3 py-2 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10"
+                                                    >
+                                                        Cambiar habitación
+                                                    </button>
+                                                </div>
+                                            ) : (() => {
+                                                const isActiveForRoomCheck = (r: ReservationDisplay) =>
+                                                    r.status !== "cancelled" && r.status !== "no_show" && r.status !== "checked_out";
+                                                const checkIn = selectedReservation.check_in;
+                                                const checkOut = selectedReservation.check_out;
+                                                const availableRoomsForRoomChange = rooms.filter((room) => {
+                                                    const hasConflict = reservations.some((r) => {
+                                                        if (r.id === selectedReservation.id || r.room_id !== room.id) return false;
+                                                        if (!isActiveForRoomCheck(r)) return false;
+                                                        const overlapStart = r.check_in < checkOut;
+                                                        const overlapEnd = r.status === "checked_out" ? r.check_out > checkIn : r.check_out >= checkIn;
+                                                        return overlapStart && overlapEnd;
+                                                    });
+                                                    return !hasConflict;
+                                                });
+                                                const roomOptions = availableRoomsForRoomChange.map((room) => ({
+                                                    value: room.id,
+                                                    label: room.id === selectedReservation.room_id ? `Hab. ${room.roomNumber} (actual)` : `Hab. ${room.roomNumber}`,
+                                                }));
+                                                return (
+                                                <div className="border-t border-[var(--border)] bg-[var(--background)]/60 p-4 space-y-3">
+                                                    {updateRoomError && (
+                                                        <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                                                            {updateRoomError}
+                                                        </p>
+                                                    )}
+                                                    <div>
+                                                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nueva habitación</label>
+                                                        <p className="mb-2 text-xs text-[var(--muted)]">Solo se muestran habitaciones libres en las fechas de esta reserva.</p>
+                                                        <CustomSelect
+                                                            value={editRoomId}
+                                                            onChange={setEditRoomId}
+                                                            options={roomOptions}
+                                                            placeholder="Seleccione habitación"
+                                                            className="w-full"
+                                                            aria-label="Nueva habitación"
+                                                        />
+                                                        {roomOptions.length === 0 && (
+                                                            <p className="mt-2 text-xs text-[var(--muted)]">No hay habitaciones disponibles en estas fechas.</p>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setEditRoomOpen(false); setUpdateRoomError(null); }}
+                                                            disabled={updateRoomSaving}
+                                                            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                                                        >
+                                                            Cancelar
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={updateRoomSaving || !editRoomId || editRoomId === selectedReservation.room_id}
+                                                            onClick={async () => {
+                                                                setUpdateRoomError(null);
+                                                                setUpdateRoomSaving(true);
+                                                                const result = await updateReservationRoom(selectedReservation.id, editRoomId);
+                                                                setUpdateRoomSaving(false);
+                                                                if (result.error) {
+                                                                    setUpdateRoomError(result.error);
+                                                                    return;
+                                                                }
+                                                                setEditRoomOpen(false);
+                                                                router.refresh();
+                                                            }}
+                                                            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                                        >
+                                                            {updateRoomSaving ? "Guardando…" : "Guardar habitación"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                );
+                                            })()}
+                                        </>
                                     )}
                                 </div>
                             </section>
