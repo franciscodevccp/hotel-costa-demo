@@ -2050,7 +2050,7 @@ export function AdminReservationsView({
                                                     </div>
                                                 </div>
                                             )}
-                                            {(["pending", "confirmed", "checked_in"] as const).includes(selectedReservation.status) && (
+                                            {(selectedReservation.status === "pending" || selectedReservation.status === "confirmed" || selectedReservation.status === "checked_in") && (
                                                 <button
                                                     type="button"
                                                     onClick={() => {
