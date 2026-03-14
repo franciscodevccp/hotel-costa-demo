@@ -544,6 +544,42 @@ export async function updateReservationRoom(
   return { success: true };
 }
 
+export type UpdateReservationTotalState = { error?: string; success?: boolean };
+
+/** Modificar el monto total de una reserva ya creada (ej. al cambiar a una habitación más cara). */
+export async function updateReservationTotal(
+  reservationId: string,
+  newTotalAmount: number
+): Promise<UpdateReservationTotalState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) {
+    return { error: "No autorizado" };
+  }
+  const amount = Math.round(Number(newTotalAmount)) || 0;
+  if (amount < 0) return { error: "El monto total debe ser mayor o igual a 0" };
+
+  const reservation = await prisma.reservation.findFirst({
+    where: { id: reservationId, establishmentId: session.user.establishmentId },
+    select: { id: true, status: true },
+  });
+  if (!reservation) return { error: "Reserva no encontrada" };
+
+  const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
+  if (!activeStatuses.includes(reservation.status as (typeof activeStatuses)[number])) {
+    return { error: "Solo se puede modificar el total en reservas pendientes, confirmadas o con check-in realizado" };
+  }
+
+  await prisma.reservation.updateMany({
+    where: { id: reservationId, establishmentId: session.user.establishmentId },
+    data: { totalAmount: amount },
+  });
+
+  revalidatePath("/dashboard/reservations");
+  revalidatePath("/dashboard/pending-payments");
+  revalidatePath("/dashboard/payments");
+  return { success: true };
+}
+
 export type UpdateEntryCardState = { error?: string; success?: boolean };
 
 export async function updateReservationEntryCard(

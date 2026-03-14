@@ -4,11 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { createPortal } from "react-dom";
-import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone, ImagePlus, Receipt, Trash2 } from "lucide-react";
+import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail, Phone, ImagePlus, Receipt, Trash2, Pencil } from "lucide-react";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, updateReservationDates, updateReservationRoom, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, updateReservationDates, updateReservationRoom, updateReservationTotal, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -153,6 +153,10 @@ export function AdminReservationsView({
     const [editRoomId, setEditRoomId] = useState("");
     const [updateRoomSaving, setUpdateRoomSaving] = useState(false);
     const [updateRoomError, setUpdateRoomError] = useState<string | null>(null);
+    const [editTotalOpen, setEditTotalOpen] = useState(false);
+    const [editTotalValue, setEditTotalValue] = useState("");
+    const [updateTotalSaving, setUpdateTotalSaving] = useState(false);
+    const [updateTotalError, setUpdateTotalError] = useState<string | null>(null);
     const [entryCardUrlOverride, setEntryCardUrlOverride] = useState<Record<string, string>>({});
     const [uploadingEntryCard, setUploadingEntryCard] = useState(false);
     const [entryCardPreviewUrl, setEntryCardPreviewUrl] = useState<string | null>(null);
@@ -1963,31 +1967,106 @@ export function AdminReservationsView({
                                     Pago
                                 </h4>
                                 <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/40 p-5">
-                                    {(selectedReservation.pending_amount != null && selectedReservation.pending_amount === 0) ||
-                                     (selectedReservation.paid_amount != null && selectedReservation.paid_amount >= selectedReservation.total_price) ? (
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm font-medium text-[var(--success)]">Pago completado</span>
-                                            <p className="text-xl font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
-                                        </div>
-                                    ) : (
+                                    {updateTotalError && (
+                                        <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)] mb-3">
+                                            {updateTotalError}
+                                        </p>
+                                    )}
+                                    {editTotalOpen ? (
                                         <div className="space-y-3">
-                                            {selectedReservation.paid_amount != null && selectedReservation.paid_amount > 0 && (
-                                                <div className="flex justify-between text-sm">
-                                                    <span className="text-[var(--muted)]">Abonado</span>
-                                                    <span className="font-medium">{formatCLP(selectedReservation.paid_amount)}</span>
-                                                </div>
-                                            )}
-                                            {selectedReservation.pending_amount != null && selectedReservation.pending_amount > 0 && (
-                                                <div className="flex justify-between text-sm">
-                                                    <span className="text-[var(--muted)]">Saldo pendiente</span>
-                                                    <span className="font-medium text-[var(--warning)]">{formatCLP(selectedReservation.pending_amount)}</span>
-                                                </div>
-                                            )}
-                                            <div className="flex justify-between pt-3 border-t border-[var(--border)]">
-                                                <span className="text-sm text-[var(--muted)]">Total</span>
-                                                <p className="text-lg font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
+                                            <p className="text-xs text-[var(--muted)]">Modifique el monto total de la reserva (ej. al cambiar a una habitación más cara). Los consumos se suman aparte.</p>
+                                            <div>
+                                                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nuevo total reserva (CLP)</label>
+                                                <input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    value={editTotalValue}
+                                                    onChange={(e) => setEditTotalValue(e.target.value.replace(/\D/g, ""))}
+                                                    placeholder="Ej. 150000"
+                                                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                                                />
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setEditTotalOpen(false); setUpdateTotalError(null); }}
+                                                    disabled={updateTotalSaving}
+                                                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                                                >
+                                                    Cancelar
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={updateTotalSaving || !editTotalValue}
+                                                    onClick={async () => {
+                                                        setUpdateTotalError(null);
+                                                        setUpdateTotalSaving(true);
+                                                        const amount = parseInt(editTotalValue.replace(/\D/g, ""), 10);
+                                                        if (Number.isNaN(amount) || amount < 0) {
+                                                            setUpdateTotalError("Ingrese un monto válido");
+                                                            setUpdateTotalSaving(false);
+                                                            return;
+                                                        }
+                                                        const result = await updateReservationTotal(selectedReservation.id, amount);
+                                                        setUpdateTotalSaving(false);
+                                                        if (result.error) {
+                                                            setUpdateTotalError(result.error);
+                                                            return;
+                                                        }
+                                                        setEditTotalOpen(false);
+                                                        router.refresh();
+                                                    }}
+                                                    className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                                >
+                                                    {updateTotalSaving ? "Guardando…" : "Guardar total"}
+                                                </button>
                                             </div>
                                         </div>
+                                    ) : (
+                                        <>
+                                            {(selectedReservation.pending_amount != null && selectedReservation.pending_amount === 0) ||
+                                             (selectedReservation.paid_amount != null && selectedReservation.paid_amount >= selectedReservation.total_price) ? (
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-sm font-medium text-[var(--success)]">Pago completado</span>
+                                                    <p className="text-xl font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    {selectedReservation.paid_amount != null && selectedReservation.paid_amount > 0 && (
+                                                        <div className="flex justify-between text-sm">
+                                                            <span className="text-[var(--muted)]">Abonado</span>
+                                                            <span className="font-medium">{formatCLP(selectedReservation.paid_amount)}</span>
+                                                        </div>
+                                                    )}
+                                                    {selectedReservation.pending_amount != null && selectedReservation.pending_amount > 0 && (
+                                                        <div className="flex justify-between text-sm">
+                                                            <span className="text-[var(--muted)]">Saldo pendiente</span>
+                                                            <span className="font-medium text-[var(--warning)]">{formatCLP(selectedReservation.pending_amount)}</span>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex justify-between pt-3 border-t border-[var(--border)]">
+                                                        <span className="text-sm text-[var(--muted)]">Total</span>
+                                                        <p className="text-lg font-bold text-[var(--foreground)]">{formatCLP(selectedReservation.total_price)}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {(["pending", "confirmed", "checked_in"] as const).includes(selectedReservation.status) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const consumptionSum = selectedReservation.consumptions?.reduce((s, c) => s + c.amount, 0) ?? 0;
+                                                        const roomTotal = Math.max(0, selectedReservation.total_price - consumptionSum);
+                                                        setEditTotalValue(String(roomTotal));
+                                                        setUpdateTotalError(null);
+                                                        setEditTotalOpen(true);
+                                                    }}
+                                                    className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--primary)] bg-[var(--primary)]/10 px-3 py-2 text-sm font-medium text-[var(--primary)] hover:bg-[var(--primary)]/20 transition-colors"
+                                                >
+                                                    <Pencil className="h-4 w-4 shrink-0" aria-hidden />
+                                                    Cambiar monto total
+                                                </button>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </section>
