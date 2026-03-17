@@ -127,6 +127,49 @@ export async function registerMovement(
   return {};
 }
 
+export type MovementDetail = {
+  date: string;
+  quantity: number;
+  folio: string | null;
+};
+
+export async function getMovementsForProduct(productId: string): Promise<{
+  entries: MovementDetail[];
+  exits: MovementDetail[];
+} | null> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) return null;
+
+  const product = await prisma.inventoryProduct.findFirst({
+    where: { id: productId, establishmentId: session.user.establishmentId },
+    select: { id: true },
+  });
+  if (!product) return null;
+
+  const movements = await prisma.inventoryMovement.findMany({
+    where: { productId: product.id },
+    select: { type: true, quantity: true, folio: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const entries: MovementDetail[] = movements
+    .filter((m) => m.type === "ENTRY")
+    .map((m) => ({
+      date: m.createdAt.toISOString().slice(0, 10),
+      quantity: m.quantity,
+      folio: m.folio ?? null,
+    }));
+  const exits: MovementDetail[] = movements
+    .filter((m) => m.type === "EXIT")
+    .map((m) => ({
+      date: m.createdAt.toISOString().slice(0, 10),
+      quantity: m.quantity,
+      folio: m.folio ?? null,
+    }));
+
+  return { entries, exits };
+}
+
 export type UpdateStockState = { error?: string };
 
 /** Actualiza el stock del producto directamente (ajuste manual). */

@@ -21,15 +21,19 @@ import {
   registerMovement as registerMovementAction,
   updateProductLastDates as updateProductLastDatesAction,
   updateProductStock as updateProductStockAction,
+  getMovementsForProduct,
+  type MovementDetail,
 } from "@/app/dashboard/inventory/actions";
 import {
   getInvoiceByFolio,
+  getInvoicesForProduct,
   type InvoiceByFolio,
 } from "@/app/dashboard/invoices/actions";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { createPortal } from "react-dom";
 import { format } from "date-fns";
+import { es } from "date-fns/locale";
 
 export interface InventoryProduct {
   id: string;
@@ -112,6 +116,18 @@ export function InventoryView({ products: initialProducts }: { products: Product
   const [invoicePreviewFolio, setInvoicePreviewFolio] = useState<string | null>(null);
   const [loadingInvoicePreview, setLoadingInvoicePreview] = useState(false);
   const [invoicePhotoPreviewUrl, setInvoicePhotoPreviewUrl] = useState<string | null>(null);
+  const [productDocsModal, setProductDocsModal] = useState<InventoryProduct | null>(null);
+  const [productDocs, setProductDocs] = useState<InvoiceByFolio[]>([]);
+  const [loadingProductDocs, setLoadingProductDocs] = useState(false);
+  const [movementsModal, setMovementsModal] = useState<{
+    product: InventoryProduct;
+    type: "entrada" | "salida";
+  } | null>(null);
+  const [movementsData, setMovementsData] = useState<{
+    entries: MovementDetail[];
+    exits: MovementDetail[];
+  } | null>(null);
+  const [loadingMovements, setLoadingMovements] = useState(false);
   const [sortBy, setSortBy] = useState<SortColumn>("product");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [search, setSearch] = useState("");
@@ -268,6 +284,29 @@ export function InventoryView({ products: initialProducts }: { products: Product
     const data = await getInvoiceByFolio(folio);
     setLoadingInvoicePreview(false);
     setInvoicePreview(data ?? null);
+  };
+
+  const handleVerDocumentos = async (product: InventoryProduct) => {
+    setProductDocsModal(product);
+    setProductDocs([]);
+    setLoadingProductDocs(true);
+    const docs = await getInvoicesForProduct(product.id);
+    setProductDocs(docs);
+    setLoadingProductDocs(false);
+  };
+
+  const openDocFromList = (folio: string) => {
+    setProductDocsModal(null);
+    handleFolioClick(folio);
+  };
+
+  const handleVerMovimientos = async (product: InventoryProduct, type: "entrada" | "salida") => {
+    setMovementsModal({ product, type });
+    setMovementsData(null);
+    setLoadingMovements(true);
+    const data = await getMovementsForProduct(product.id);
+    setMovementsData(data ?? { entries: [], exits: [] });
+    setLoadingMovements(false);
   };
 
   const closeInvoicePreview = () => {
@@ -518,25 +557,45 @@ export function InventoryView({ products: initialProducts }: { products: Product
                     </button>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {product.folio ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleFolioClick(product.folio!);
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 px-2.5 py-1 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
-                        title="Ver boleta/factura"
-                      >
-                        <FileText className="h-3.5 w-3.5" />
-                        {product.folio}
-                      </button>
-                    ) : (
-                      <span className="text-xs text-[var(--muted)]">—</span>
-                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleVerDocumentos(product);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/5 px-2.5 py-1 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10 transition-colors"
+                      title="Ver facturas, boletas y guías asociadas"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      Ver
+                    </button>
                   </td>
-                  <td className="px-4 py-3 text-center text-[var(--success)]">{product.entradas}</td>
-                  <td className="px-4 py-3 text-center text-[var(--destructive)]">{product.salidas}</td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleVerMovimientos(product, "entrada");
+                      }}
+                      className="inline-flex items-center justify-center min-w-[2rem] rounded-lg px-2 py-1 text-sm font-medium text-[var(--success)] hover:bg-[var(--success)]/10 transition-colors"
+                      title="Ver detalle de entradas"
+                    >
+                      {product.entradas}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleVerMovimientos(product, "salida");
+                      }}
+                      className="inline-flex items-center justify-center min-w-[2rem] rounded-lg px-2 py-1 text-sm font-medium text-[var(--destructive)] hover:bg-[var(--destructive)]/10 transition-colors"
+                      title="Ver detalle de salidas"
+                    >
+                      {product.salidas}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-center text-xs">
                     <button
                       type="button"
@@ -1042,6 +1101,138 @@ export function InventoryView({ products: initialProducts }: { products: Product
                 {deleting ? "Eliminando…" : "Eliminar"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal detalle entradas o salidas */}
+      {movementsModal != null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setMovementsModal(null)}
+        >
+          <div
+            className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                {movementsModal.type === "entrada" ? "Entradas" : "Salidas"} — {movementsModal.product.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMovementsModal(null)}
+                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)] shrink-0"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {loadingMovements && (
+              <p className="mt-4 text-sm text-[var(--muted)]">Cargando…</p>
+            )}
+            {!loadingMovements && movementsData && (() => {
+              const list = movementsModal.type === "entrada" ? movementsData.entries : movementsData.exits;
+              if (list.length === 0) {
+                return (
+                  <p className="mt-4 text-sm text-[var(--muted)]">
+                    {movementsModal.type === "entrada" ? "No hay entradas registradas." : "No hay salidas registradas."}
+                  </p>
+                );
+              }
+              return (
+                <div className="mt-4 space-y-2">
+                  {list.map((mov, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--background)]/50 px-4 py-3 text-sm"
+                    >
+                      <div className="flex justify-between gap-2">
+                        <span className="font-medium text-[var(--foreground)]">
+                          {mov.quantity} {movementsModal.product.unit}
+                        </span>
+                        <span className="text-[var(--muted)]">
+                          {format(new Date(mov.date + "T12:00:00"), "d MMM yyyy", { locale: es })}
+                        </span>
+                      </div>
+                      {movementsModal.type === "entrada" ? (
+                        mov.folio ? (
+                          <p className="mt-1 text-xs text-[var(--muted)]">
+                            Folio / Factura: <span className="text-[var(--foreground)]">{mov.folio}</span>
+                          </p>
+                        ) : null
+                      ) : (
+                        mov.folio ? (
+                          <p className="mt-1 text-xs text-[var(--muted)]">
+                            Quién retira: <span className="text-[var(--foreground)]">{mov.folio}</span>
+                          </p>
+                        ) : null
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Modal lista de documentos asociados al producto */}
+      {productDocsModal != null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setProductDocsModal(null)}
+        >
+          <div
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                Documentos asociados — {productDocsModal.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setProductDocsModal(null)}
+                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)] shrink-0"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {loadingProductDocs && (
+              <p className="mt-4 text-sm text-[var(--muted)]">Cargando…</p>
+            )}
+            {!loadingProductDocs && productDocs.length === 0 && (
+              <p className="mt-4 text-sm text-[var(--muted)]">
+                No hay facturas, boletas ni guías asociadas a este producto.
+              </p>
+            )}
+            {!loadingProductDocs && productDocs.length > 0 && (
+              <ul className="mt-4 space-y-2">
+                {productDocs.map((doc) => (
+                  <li key={doc.folio}>
+                    <button
+                      type="button"
+                      onClick={() => openDocFromList(doc.folio)}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)]/50 px-4 py-3 text-left hover:bg-[var(--primary)]/10 hover:border-[var(--primary)]/30 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-[var(--foreground)]">
+                          {doc.folio}
+                        </span>
+                        <span className="text-xs text-[var(--muted)]">
+                          {doc.type === "boleta" ? "Boleta" : doc.type === "factura" ? "Factura" : doc.type === "guia_despacho" ? "Guía de despacho" : "Cotización"} · {doc.date}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm font-semibold text-[var(--primary)]">
+                        {formatCLP(doc.total)}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}

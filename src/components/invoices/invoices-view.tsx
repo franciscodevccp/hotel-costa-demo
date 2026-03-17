@@ -192,6 +192,10 @@ export function InvoicesView({
     e.preventDefault();
     if (!formFolio.trim()) return;
     setSubmitError(null);
+    if (newItemProduct) {
+      setSubmitError("Hay un producto seleccionado que no ha sido agregado. Haga clic en «Agregar» para incluirlo en la boleta o factura.");
+      return;
+    }
     setSaving(true);
     const total = formTotal || formItems.reduce((s, i) => s + i.quantity * (i.unitPrice || 0), 0);
     const result = await createInvoice({}, {

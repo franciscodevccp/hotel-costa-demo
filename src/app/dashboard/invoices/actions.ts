@@ -171,3 +171,25 @@ export async function getInvoiceByFolio(folio: string): Promise<InvoiceByFolio> 
     })),
   };
 }
+
+/** Devuelve todas las boletas/facturas/guías asociadas a un producto (por movimientos con folio). */
+export async function getInvoicesForProduct(productId: string): Promise<InvoiceByFolio[]> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) return [];
+
+  const movements = await prisma.inventoryMovement.findMany({
+    where: {
+      productId,
+      folio: { not: null },
+      product: { establishmentId: session.user.establishmentId },
+    },
+    select: { folio: true },
+  });
+  const folios = [...new Set(movements.map((m) => m.folio as string))];
+  const invoices: InvoiceByFolio[] = [];
+  for (const folio of folios) {
+    const inv = await getInvoiceByFolio(folio);
+    if (inv) invoices.push(inv);
+  }
+  return invoices;
+}
