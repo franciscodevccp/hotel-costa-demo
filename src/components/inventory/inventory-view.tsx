@@ -1210,7 +1210,7 @@ export function InventoryView({ products: initialProducts }: { products: Product
             )}
             {!loadingProductDocs && productDocs.length > 0 && (
               <ul className="mt-4 space-y-2">
-                {productDocs.map((doc) => (
+                {productDocs.filter((doc): doc is NonNullable<typeof doc> => doc != null).map((doc) => (
                   <li key={doc.folio}>
                     <button
                       type="button"
