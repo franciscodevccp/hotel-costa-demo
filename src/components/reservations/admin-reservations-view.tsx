@@ -682,7 +682,7 @@ export function AdminReservationsView({
                             onClick={() => setNewFolioMode("PER_ROOM")}
                             className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${newFolioMode === "PER_ROOM" ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]" : "border-[var(--border)] text-[var(--muted)]"}`}
                           >
-                            Folio por habitación
+                            Folio individual
                           </button>
                         </div>
                         <input
