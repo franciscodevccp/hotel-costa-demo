@@ -217,6 +217,60 @@ export async function registerFirstPayment(
   }
 
   try {
+    if (reservationId.startsWith("grp:")) {
+      const groupId = reservationId.slice(4);
+      const reservations = await prisma.reservation.findMany({
+        where: {
+          establishmentId: session.user.establishmentId,
+          notes: { contains: `[GRP:${groupId}]` },
+          status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
+        },
+        include: { payments: true, consumptions: { select: { amount: true } } },
+        orderBy: { createdAt: "asc" },
+      });
+      if (reservations.length === 0) return { error: "Grupo de reserva no encontrado" };
+
+      const totals = reservations.map((r) => {
+        const consumptionSum = r.consumptions.reduce((s, c) => s + c.amount, 0);
+        const totalToPay = r.totalAmount + consumptionSum;
+        const paid = r.payments.reduce((s, p) => s + p.amount, 0);
+        const pending = Math.max(0, totalToPay - paid);
+        return { reservationId: r.id, pending };
+      });
+      const groupPending = totals.reduce((s, r) => s + r.pending, 0);
+      if (amount > groupPending) {
+        return { error: `El monto no puede superar el pendiente del grupo (${groupPending} CLP)` };
+      }
+      let remaining = Math.round(amount);
+      for (const t of totals) {
+        if (remaining <= 0) break;
+        const chunk = Math.min(remaining, t.pending);
+        if (chunk <= 0) continue;
+        const status = chunk >= t.pending ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+        const receiptUrls = receiptUrl ? [receiptUrl] : [];
+        const receiptEntries = receiptUrl ? [{ url: receiptUrl, amount: chunk, method, hash: receiptHash ?? undefined }] : undefined;
+        await prisma.payment.create({
+          data: {
+            establishmentId: session.user.establishmentId,
+            reservationId: t.reservationId,
+            registeredById: session.user.id,
+            amount: chunk,
+            method,
+            status,
+            notes: "Pago grupal registrado desde Pagos",
+            receiptUrl: receiptUrl ?? null,
+            receiptUrls,
+            ...(receiptEntries && { receiptEntries }),
+          } as Parameters<typeof prisma.payment.create>[0]["data"],
+        });
+        remaining -= chunk;
+      }
+      revalidatePath("/dashboard/payments");
+      revalidatePath("/dashboard/pending-payments");
+      revalidatePath("/dashboard/reservations");
+      return { success: true };
+    }
+
     const reservation = await prisma.reservation.findFirst({
       where: { id: reservationId, establishmentId: session.user.establishmentId },
       include: { payments: true, consumptions: { select: { amount: true } } },

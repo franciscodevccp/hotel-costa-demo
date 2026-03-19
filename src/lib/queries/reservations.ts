@@ -43,6 +43,20 @@ export async function getReservationsByGuestId(establishmentId: string, guestId:
 
 /** Una reserva por ID (para mostrar en Pagos cuando se viene desde "Registrar pago" y aún no hay pagos). */
 export async function getReservationById(establishmentId: string, reservationId: string) {
+  if (reservationId.startsWith("grp:")) {
+    const groupId = reservationId.slice(4);
+    return prisma.reservation.findFirst({
+      where: { establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+      include: {
+        guest: true,
+        room: true,
+        payments: true,
+        processedBy: { select: { id: true, fullName: true } },
+        consumptions: { select: { amount: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }
   return prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId },
     include: {

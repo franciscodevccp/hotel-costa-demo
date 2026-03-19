@@ -8,13 +8,16 @@ import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, updateReservationDates, updateReservationRoom, updateReservationTotal, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, updateReservationDates, updateReservationRoom, updateReservationGroupRooms, updateReservationTotal, updateReservationFolio, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 
 export interface ReservationDisplay {
     id: string;
+    group_key?: string;
+    grouped_room_count?: number;
+    grouped_room_numbers?: string[];
     guest_name: string;
     guest_email: string;
     guest_phone: string;
@@ -86,7 +89,7 @@ function formatChileanRut(value: string): string {
   return dv ? `${bodyFormatted}-${dv}` : bodyFormatted;
 }
 
-type RoomLine = { roomId: string; numGuests: number };
+type RoomLine = { roomId: string; numGuests: number; folioNumber?: string };
 const initialReservationState: CreateReservationsBulkState = {};
 const initialGuestState: CreateGuestState = {};
 
@@ -126,7 +129,7 @@ export function AdminReservationsView({
     const [newGuestId, setNewGuestId] = useState("");
     const [guestSearch, setGuestSearch] = useState("");
     const [guestDropdownOpen, setGuestDropdownOpen] = useState(false);
-    const [roomLines, setRoomLines] = useState<RoomLine[]>([{ roomId: "", numGuests: 1 }]);
+    const [roomLines, setRoomLines] = useState<RoomLine[]>([{ roomId: "", numGuests: 1, folioNumber: "" }]);
     const [newCheckIn, setNewCheckIn] = useState("");
     const [newCheckOut, setNewCheckOut] = useState("");
     const [newTotalAmount, setNewTotalAmount] = useState(0);
@@ -136,6 +139,7 @@ export function AdminReservationsView({
     const [newPaymentTermDays, setNewPaymentTermDays] = useState<number>(0);
     const [newNotes, setNewNotes] = useState("");
     const [newFolioNumber, setNewFolioNumber] = useState("");
+    const [newFolioMode, setNewFolioMode] = useState<"GROUP" | "PER_ROOM">("GROUP");
     const [newProcessedByName, setNewProcessedByName] = useState("");
     const [receptionistDropdownOpen, setReceptionistDropdownOpen] = useState(false);
     const [reservationState, setReservationState] = useState<CreateReservationsBulkState>(initialReservationState);
@@ -151,12 +155,24 @@ export function AdminReservationsView({
     const [updateDatesError, setUpdateDatesError] = useState<string | null>(null);
     const [editRoomOpen, setEditRoomOpen] = useState(false);
     const [editRoomId, setEditRoomId] = useState("");
+    const [editGroupRoomIds, setEditGroupRoomIds] = useState<string[]>([]);
+    const [editRoomInitialId, setEditRoomInitialId] = useState("");
+    const [editGroupRoomInitialIds, setEditGroupRoomInitialIds] = useState<string[]>([]);
     const [updateRoomSaving, setUpdateRoomSaving] = useState(false);
     const [updateRoomError, setUpdateRoomError] = useState<string | null>(null);
     const [editTotalOpen, setEditTotalOpen] = useState(false);
     const [editTotalValue, setEditTotalValue] = useState("");
+    const [editTotalInitialValue, setEditTotalInitialValue] = useState("");
     const [updateTotalSaving, setUpdateTotalSaving] = useState(false);
     const [updateTotalError, setUpdateTotalError] = useState<string | null>(null);
+    const [editFolioOpen, setEditFolioOpen] = useState(false);
+    const [editFolioValue, setEditFolioValue] = useState("");
+    const [updateFolioSaving, setUpdateFolioSaving] = useState(false);
+    const [updateFolioError, setUpdateFolioError] = useState<string | null>(null);
+    const [showUnsavedFolioModal, setShowUnsavedFolioModal] = useState(false);
+    const [showUnsavedRoomModal, setShowUnsavedRoomModal] = useState(false);
+    const [showUnsavedTotalModal, setShowUnsavedTotalModal] = useState(false);
+    const [showUnsavedConsumptionModal, setShowUnsavedConsumptionModal] = useState(false);
     const [entryCardUrlOverride, setEntryCardUrlOverride] = useState<Record<string, string>>({});
     const [uploadingEntryCard, setUploadingEntryCard] = useState(false);
     const [entryCardPreviewUrl, setEntryCardPreviewUrl] = useState<string | null>(null);
@@ -305,13 +321,15 @@ export function AdminReservationsView({
         setNewGuestId("");
         setGuestSearch("");
         setGuestDropdownOpen(false);
-        setRoomLines([{ roomId: "", numGuests: 1 }]);
+        setRoomLines([{ roomId: "", numGuests: 1, folioNumber: "" }]);
         setNewCheckIn("");
         setNewCheckOut("");
         setNewTotalAmount(0);
         setNewDownPayment(0);
         setNewDownPaymentMethod("CASH");
         setNewNotes("");
+        setNewFolioNumber("");
+        setNewFolioMode("GROUP");
         setReservationState({});
       }
     }, [newReservationOpen]);
@@ -395,6 +413,74 @@ export function AdminReservationsView({
             currency: 'CLP',
             minimumFractionDigits: 0,
         }).format(amount);
+    };
+
+    const getSelectedReservationRoomNumbers = (reservation: ReservationDisplay): string[] => {
+      if (reservation.grouped_room_numbers && reservation.grouped_room_numbers.length > 0) {
+        return reservation.grouped_room_numbers;
+      }
+      const byText = (reservation.room_number ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return byText.length > 0 ? byText : [reservation.room_number];
+    };
+
+    const tryCloseReservationModal = () => {
+      if (editFolioOpen && selectedReservation) {
+        const current = (selectedReservation.folio_number ?? "").trim();
+        const draft = editFolioValue.trim();
+        if (draft !== current) {
+          setShowUnsavedFolioModal(true);
+          return;
+        }
+      }
+      if (editRoomOpen) {
+        const roomDirty = editRoomId !== editRoomInitialId;
+        const groupDirty =
+          editGroupRoomIds.length !== editGroupRoomInitialIds.length ||
+          editGroupRoomIds.some((id, i) => id !== (editGroupRoomInitialIds[i] ?? ""));
+        if (roomDirty || groupDirty) {
+          setShowUnsavedRoomModal(true);
+          return;
+        }
+      }
+      if (editTotalOpen) {
+        const totalDirty = editTotalValue.trim() !== editTotalInitialValue.trim();
+        if (totalDirty) {
+          setShowUnsavedTotalModal(true);
+          return;
+        }
+      }
+      if (consumptionFormOpen) {
+        const consumptionDirty =
+          consumptionFormNumber.trim() !== "" ||
+          consumptionFormDescription.trim() !== "" ||
+          consumptionFormAmount > 0 ||
+          consumptionFormPhotoFile != null;
+        if (consumptionDirty) {
+          setShowUnsavedConsumptionModal(true);
+          return;
+        }
+      }
+      setSelectedReservation(null);
+      setEntryCardPreviewUrl(null);
+      setConsumptionFormOpen(false);
+      setConsumptionPreviewUrl(null);
+      setPaymentReceiptPreviewUrl(null);
+    };
+
+    const tryCloseConsumptionForm = () => {
+      const dirty =
+        consumptionFormNumber.trim() !== "" ||
+        consumptionFormDescription.trim() !== "" ||
+        consumptionFormAmount > 0 ||
+        consumptionFormPhotoFile != null;
+      if (dirty) {
+        setShowUnsavedConsumptionModal(true);
+        return;
+      }
+      setConsumptionFormOpen(false);
     };
 
     const parseLocalDateStr = (dateStr: string) => {
@@ -497,7 +583,7 @@ export function AdminReservationsView({
                       className="flex min-h-0 flex-1 flex-col"
                       onSubmit={async (e) => {
                         e.preventDefault();
-                        if (!newFolioNumber?.trim()) {
+                        if (newFolioMode === "GROUP" && !newFolioNumber?.trim()) {
                           setReservationState({ error: "Indique el número de folio (tarjeta de ingreso)" });
                           return;
                         }
@@ -512,6 +598,10 @@ export function AdminReservationsView({
                         const validLines = roomLines.filter((l) => l.roomId && l.numGuests >= 1);
                         if (validLines.length === 0) {
                           setReservationState({ error: "Agregue al menos una habitación e indique huéspedes" });
+                          return;
+                        }
+                        if (newFolioMode === "PER_ROOM" && validLines.some((l) => !(l.folioNumber?.trim()))) {
+                          setReservationState({ error: "Complete el folio en cada habitación" });
                           return;
                         }
                         if (!newCheckIn || !newCheckOut) {
@@ -556,7 +646,7 @@ export function AdminReservationsView({
                           paymentTermDays: newDownPaymentMethod === "PURCHASE_ORDER" && newPaymentTermDays >= 1 ? newPaymentTermDays : undefined,
                           notes: newNotes || undefined,
                           customTotalAmount: newTotalAmount > 0 ? newTotalAmount : undefined,
-                          folioNumber: newFolioNumber.trim(),
+                          folioNumber: newFolioMode === "GROUP" ? newFolioNumber.trim() : "POR_HABITACION",
                           processedByName: newProcessedByName.trim(),
                           downPaymentReceiptUrl: receiptUrl,
                           downPaymentReceiptHash: receiptHash,
@@ -579,15 +669,36 @@ export function AdminReservationsView({
                       )}
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nº de folio (tarjeta de ingreso) *</label>
+                        <div className="mb-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNewFolioMode("GROUP")}
+                            className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${newFolioMode === "GROUP" ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]" : "border-[var(--border)] text-[var(--muted)]"}`}
+                          >
+                            Folio grupal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewFolioMode("PER_ROOM")}
+                            className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${newFolioMode === "PER_ROOM" ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]" : "border-[var(--border)] text-[var(--muted)]"}`}
+                          >
+                            Folio por habitación
+                          </button>
+                        </div>
                         <input
                           type="text"
                           value={newFolioNumber}
                           onChange={(e) => setNewFolioNumber(e.target.value)}
                           placeholder="Ej. 000002"
+                          disabled={newFolioMode !== "GROUP"}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                           aria-required
                         />
-                        <p className="mt-0.5 text-xs text-[var(--muted)]">Número que figura en la tarjeta de ingreso en papel.</p>
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">
+                          {newFolioMode === "GROUP"
+                            ? "Número único para todas las habitaciones del grupo."
+                            : "Ingrese el folio en cada línea de habitación."}
+                        </p>
                       </div>
                       <div className="relative">
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Recepcionista que gestiona la reserva *</label>
@@ -789,6 +900,22 @@ export function AdminReservationsView({
                                 className="min-w-full"
                               />
                             </div>
+                            {newFolioMode === "PER_ROOM" && (
+                              <div className="min-w-[9rem] shrink-0 sm:min-w-[10rem]">
+                                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Folio</label>
+                                <input
+                                  type="text"
+                                  value={line.folioNumber ?? ""}
+                                  onChange={(e) =>
+                                    setRoomLines((prev) =>
+                                      prev.map((l, i) => (i === index ? { ...l, folioNumber: e.target.value } : l))
+                                    )
+                                  }
+                                  placeholder="Ej. 000125"
+                                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                                />
+                              </div>
+                            )}
                             <button
                               type="button"
                               onClick={() =>
@@ -805,7 +932,7 @@ export function AdminReservationsView({
                         ))}
                         <button
                           type="button"
-                          onClick={() => setRoomLines((prev) => [...prev, { roomId: "", numGuests: 1 }])}
+                          onClick={() => setRoomLines((prev) => [...prev, { roomId: "", numGuests: 1, folioNumber: "" }])}
                           disabled={!newCheckIn || !newCheckOut}
                           className="rounded-lg border border-dashed border-[var(--border)] bg-transparent px-3 py-2 text-sm font-medium text-[var(--muted)] hover:border-[var(--primary)] hover:bg-[var(--primary)]/5 hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-50"
                         >
@@ -855,7 +982,9 @@ export function AdminReservationsView({
                           </p>
                         )}
                         <div className={`mt-2 ${!(
-                          newFolioNumber?.trim() &&
+                          (newFolioMode === "GROUP"
+                            ? newFolioNumber?.trim()
+                            : !roomLines.some((l) => l.roomId && !(l.folioNumber?.trim()))) &&
                           newProcessedByName?.trim() &&
                           newGuestId &&
                           newCheckIn &&
@@ -886,7 +1015,9 @@ export function AdminReservationsView({
                             aria-label="Método de pago"
                           />
                           {!(
-                            newFolioNumber?.trim() &&
+                            (newFolioMode === "GROUP"
+                              ? newFolioNumber?.trim()
+                              : !roomLines.some((l) => l.roomId && !(l.folioNumber?.trim()))) &&
                             newProcessedByName?.trim() &&
                             newGuestId &&
                             newCheckIn &&
@@ -894,7 +1025,7 @@ export function AdminReservationsView({
                             roomLines.some((l) => l.roomId && l.numGuests >= 1)
                           ) && (
                             <p className="mt-1 text-xs text-[var(--muted)]">
-                              Complete folio, recepcionista, huésped, fechas y habitaciones para habilitar.
+                              Complete folio(s), recepcionista, huésped, fechas y habitaciones para habilitar.
                             </p>
                           )}
                           <input type="hidden" name="downPaymentMethod" value={newDownPaymentMethod === "PURCHASE_ORDER" ? "OTHER" : (newDownPaymentMethod || "CASH")} />
@@ -965,12 +1096,13 @@ export function AdminReservationsView({
                         </button>
                         <CrearReservaSubmitButton
                           disabled={
-                            !newFolioNumber?.trim() ||
+                            ((newFolioMode === "GROUP" && !newFolioNumber?.trim()) ||
+                            (newFolioMode === "PER_ROOM" && roomLines.some((l) => l.roomId && !(l.folioNumber?.trim()))) ||
                             !newProcessedByName?.trim() ||
                             roomLines.every((l) => !l.roomId) ||
                             (newTotalAmount > 0 && newDownPayment > newTotalAmount) ||
                             (newDownPaymentMethod === "PURCHASE_ORDER" && (!newPaymentTermDays || newPaymentTermDays < 1)) ||
-                            (["TRANSFER", "DEBIT", "CREDIT", "OTHER"].includes(newDownPaymentMethod) && newDownPayment > 0 && !newDownPaymentReceiptFile)
+                            (["TRANSFER", "DEBIT", "CREDIT", "OTHER"].includes(newDownPaymentMethod) && newDownPayment > 0 && !newDownPaymentReceiptFile))
                           }
                           loading={bulkSaving}
                         />
@@ -1709,7 +1841,7 @@ export function AdminReservationsView({
             {selectedReservation ? (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-                    onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); }}
+                    onClick={tryCloseReservationModal}
                 >
                     <div
                         className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
@@ -1737,7 +1869,7 @@ export function AdminReservationsView({
                             </div>
                             <button
                                 type="button"
-                                onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); }}
+                                onClick={tryCloseReservationModal}
                                 className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors shrink-0"
                             >
                                 <X className="h-5 w-5" />
@@ -1851,6 +1983,11 @@ export function AdminReservationsView({
                                                         onClick={() => {
                                                             setEditRoomOpen(true);
                                                             setEditRoomId(selectedReservation.room_id);
+                                                            setEditRoomInitialId(selectedReservation.room_id);
+                                                            const roomNumbers = getSelectedReservationRoomNumbers(selectedReservation);
+                                                            const nextIds = roomNumbers.map((roomNum) => rooms.find((r) => r.roomNumber === roomNum)?.id ?? "");
+                                                            setEditGroupRoomIds(nextIds);
+                                                            setEditGroupRoomInitialIds(nextIds);
                                                             setUpdateRoomError(null);
                                                         }}
                                                         className="rounded-lg border border-[var(--primary)]/50 bg-[var(--primary)]/5 px-3 py-2 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/10"
@@ -1859,23 +1996,11 @@ export function AdminReservationsView({
                                                     </button>
                                                 </div>
                                             ) : (() => {
-                                                const isActiveForRoomCheck = (r: ReservationDisplay) =>
-                                                    r.status !== "cancelled" && r.status !== "no_show" && r.status !== "checked_out";
-                                                const checkIn = selectedReservation.check_in;
-                                                const checkOut = selectedReservation.check_out;
-                                                const availableRoomsForRoomChange = rooms.filter((room) => {
-                                                    const hasConflict = reservations.some((r) => {
-                                                        if (r.id === selectedReservation.id || r.room_id !== room.id) return false;
-                                                        if (!isActiveForRoomCheck(r)) return false;
-                                                        const overlapStart = r.check_in < checkOut;
-                                                        const overlapEnd = r.status === "checked_out" ? r.check_out > checkIn : r.check_out >= checkIn;
-                                                        return overlapStart && overlapEnd;
-                                                    });
-                                                    return !hasConflict;
-                                                });
-                                                const roomOptions = availableRoomsForRoomChange.map((room) => ({
+                                                const groupedRooms = getSelectedReservationRoomNumbers(selectedReservation);
+                                                const isGroup = groupedRooms.length > 1;
+                                                const roomOptions = rooms.map((room) => ({
                                                     value: room.id,
-                                                    label: room.id === selectedReservation.room_id ? `Hab. ${room.roomNumber} (actual)` : `Hab. ${room.roomNumber}`,
+                                                    label: `Hab. ${room.roomNumber}`,
                                                 }));
                                                 return (
                                                 <div className="border-t border-[var(--border)] bg-[var(--background)]/60 p-4 space-y-3">
@@ -1884,25 +2009,67 @@ export function AdminReservationsView({
                                                             {updateRoomError}
                                                         </p>
                                                     )}
-                                                    <div>
-                                                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nueva habitación</label>
-                                                        <p className="mb-2 text-xs text-[var(--muted)]">Solo se muestran habitaciones libres en las fechas de esta reserva.</p>
-                                                        <CustomSelect
-                                                            value={editRoomId}
-                                                            onChange={setEditRoomId}
-                                                            options={roomOptions}
-                                                            placeholder="Seleccione habitación"
-                                                            className="w-full"
-                                                            aria-label="Nueva habitación"
-                                                        />
-                                                        {roomOptions.length === 0 && (
-                                                            <p className="mt-2 text-xs text-[var(--muted)]">No hay habitaciones disponibles en estas fechas.</p>
-                                                        )}
-                                                    </div>
+                                                    {!isGroup ? (
+                                                      <div>
+                                                          <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Nueva habitación</label>
+                                                          <p className="mb-2 text-xs text-[var(--muted)]">Solo se muestran habitaciones libres en las fechas de esta reserva.</p>
+                                                          <CustomSelect
+                                                              value={editRoomId}
+                                                              onChange={setEditRoomId}
+                                                              options={roomOptions}
+                                                              placeholder="Seleccione habitación"
+                                                              className="w-full"
+                                                              aria-label="Nueva habitación"
+                                                          />
+                                                      </div>
+                                                    ) : (
+                                                      <div>
+                                                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Cambiar habitaciones del grupo</label>
+                                                        <p className="mb-2 text-xs text-[var(--muted)]">Seleccione la nueva habitación para cada habitación actual del grupo.</p>
+                                                        <div className="space-y-2">
+                                                          {groupedRooms.map((currentRoomNumber, index) => {
+                                                            const selectedIdsFromOthers = new Set(
+                                                              editGroupRoomIds.filter((_, i) => i !== index && editGroupRoomIds[i])
+                                                            );
+                                                            const currentRoomIdForLine = rooms.find((r) => r.roomNumber === currentRoomNumber)?.id;
+                                                            const optionsForLine = roomOptions
+                                                              .filter((opt) => !selectedIdsFromOthers.has(opt.value) || opt.value === editGroupRoomIds[index])
+                                                              .map((opt) => ({
+                                                                ...opt,
+                                                                label: opt.value === currentRoomIdForLine ? `${opt.label} (actual)` : opt.label,
+                                                              }));
+                                                            return (
+                                                              <div key={`${currentRoomNumber}-${index}`} className="rounded-lg border border-[var(--border)] p-2">
+                                                                <p className="mb-1 text-xs text-[var(--muted)]">Actual: Hab. {currentRoomNumber}</p>
+                                                                <CustomSelect
+                                                                  value={editGroupRoomIds[index] ?? ""}
+                                                                  onChange={(v) => setEditGroupRoomIds((prev) => prev.map((x, i) => (i === index ? v : x)))}
+                                                                  options={optionsForLine}
+                                                                  placeholder="Seleccione habitación"
+                                                                  className="w-full"
+                                                                  aria-label={`Nueva habitación para Hab. ${currentRoomNumber}`}
+                                                                />
+                                                              </div>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      </div>
+                                                    )}
                                                     <div className="flex gap-2">
                                                         <button
                                                             type="button"
-                                                            onClick={() => { setEditRoomOpen(false); setUpdateRoomError(null); }}
+                                                            onClick={() => {
+                                                              const roomDirty = editRoomId !== editRoomInitialId;
+                                                              const groupDirty =
+                                                                editGroupRoomIds.length !== editGroupRoomInitialIds.length ||
+                                                                editGroupRoomIds.some((id, i) => id !== (editGroupRoomInitialIds[i] ?? ""));
+                                                              if (roomDirty || groupDirty) {
+                                                                setShowUnsavedRoomModal(true);
+                                                                return;
+                                                              }
+                                                              setEditRoomOpen(false);
+                                                              setUpdateRoomError(null);
+                                                            }}
                                                             disabled={updateRoomSaving}
                                                             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
                                                         >
@@ -1910,11 +2077,20 @@ export function AdminReservationsView({
                                                         </button>
                                                         <button
                                                             type="button"
-                                                            disabled={updateRoomSaving || !editRoomId || editRoomId === selectedReservation.room_id}
+                                                            disabled={
+                                                              updateRoomSaving ||
+                                                              (!isGroup && (!editRoomId || editRoomId === selectedReservation.room_id)) ||
+                                                              (isGroup && (
+                                                                editGroupRoomIds.length !== groupedRooms.length ||
+                                                                editGroupRoomIds.some((id) => !id)
+                                                              ))
+                                                            }
                                                             onClick={async () => {
                                                                 setUpdateRoomError(null);
                                                                 setUpdateRoomSaving(true);
-                                                                const result = await updateReservationRoom(selectedReservation.id, editRoomId);
+                                                                const result = !isGroup
+                                                                  ? await updateReservationRoom(selectedReservation.id, editRoomId)
+                                                                  : await updateReservationGroupRooms(selectedReservation.id, editGroupRoomIds);
                                                                 setUpdateRoomSaving(false);
                                                                 if (result.error) {
                                                                     setUpdateRoomError(result.error);
@@ -1989,7 +2165,15 @@ export function AdminReservationsView({
                                             <div className="flex gap-2">
                                                 <button
                                                     type="button"
-                                                    onClick={() => { setEditTotalOpen(false); setUpdateTotalError(null); }}
+                                                    onClick={() => {
+                                                      const totalDirty = editTotalValue.trim() !== editTotalInitialValue.trim();
+                                                      if (totalDirty) {
+                                                        setShowUnsavedTotalModal(true);
+                                                        return;
+                                                      }
+                                                      setEditTotalOpen(false);
+                                                      setUpdateTotalError(null);
+                                                    }}
                                                     disabled={updateTotalSaving}
                                                     className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
                                                 >
@@ -2057,6 +2241,7 @@ export function AdminReservationsView({
                                                         const consumptionSum = selectedReservation.consumptions?.reduce((s, c) => s + c.amount, 0) ?? 0;
                                                         const roomTotal = Math.max(0, selectedReservation.total_price - consumptionSum);
                                                         setEditTotalValue(String(roomTotal));
+                                                        setEditTotalInitialValue(String(roomTotal));
                                                         setUpdateTotalError(null);
                                                         setEditTotalOpen(true);
                                                     }}
@@ -2114,11 +2299,71 @@ export function AdminReservationsView({
                                     Tarjeta de ingreso
                                 </h4>
                                 <div className="rounded-xl border border-[var(--border)] bg-[var(--background)]/40 p-4 space-y-3">
+                                    {updateFolioError && (
+                                      <p className="rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">
+                                        {updateFolioError}
+                                      </p>
+                                    )}
                                     {selectedReservation.folio_number && (
                                         <p className="text-sm">
                                             <span className="text-[var(--muted)]">Folio:</span>{" "}
                                             <span className="font-medium text-[var(--foreground)]">{selectedReservation.folio_number}</span>
                                         </p>
+                                    )}
+                                    {editFolioOpen ? (
+                                      <div className="space-y-2">
+                                        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Editar folio</label>
+                                        <input
+                                          type="text"
+                                          value={editFolioValue}
+                                          onChange={(e) => setEditFolioValue(e.target.value)}
+                                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                                          placeholder="Ej. 000225"
+                                        />
+                                        <div className="flex gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => { setEditFolioOpen(false); setUpdateFolioError(null); }}
+                                            disabled={updateFolioSaving}
+                                            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--background)] disabled:opacity-50"
+                                          >
+                                            Cancelar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={updateFolioSaving || !editFolioValue.trim()}
+                                            onClick={async () => {
+                                              setUpdateFolioError(null);
+                                              setUpdateFolioSaving(true);
+                                              const result = await updateReservationFolio(selectedReservation.id, editFolioValue.trim());
+                                              setUpdateFolioSaving(false);
+                                              if (result.error) {
+                                                setUpdateFolioError(result.error);
+                                                return;
+                                              }
+                                              setEditFolioOpen(false);
+                                              router.refresh();
+                                            }}
+                                            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                          >
+                                            {updateFolioSaving ? "Guardando…" : "Guardar folio"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      (selectedReservation.status === "pending" || selectedReservation.status === "confirmed" || selectedReservation.status === "checked_in") && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditFolioValue(selectedReservation.folio_number ?? "");
+                                            setUpdateFolioError(null);
+                                            setEditFolioOpen(true);
+                                          }}
+                                          className="text-sm text-[var(--primary)] hover:underline"
+                                        >
+                                          Editar folio {selectedReservation.grouped_room_count && selectedReservation.grouped_room_count > 1 ? "(grupo)" : ""}
+                                        </button>
+                                      )
                                     )}
                                     {selectedReservation.processed_by_name && (
                                         <p className="text-sm">
@@ -2311,7 +2556,7 @@ export function AdminReservationsView({
                         <div className="sticky bottom-0 border-t border-[var(--border)] bg-[var(--card)] px-6 py-4">
                             <button
                                 type="button"
-                                onClick={() => { setSelectedReservation(null); setEntryCardPreviewUrl(null); setConsumptionFormOpen(false); setConsumptionPreviewUrl(null); setPaymentReceiptPreviewUrl(null); }}
+                                onClick={tryCloseReservationModal}
                                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium text-[var(--muted)] hover:bg-[var(--accent)] hover:text-[var(--foreground)] transition-colors"
                             >
                                 Cerrar
@@ -2320,6 +2565,122 @@ export function AdminReservationsView({
                     </div>
                 </div>
             ) : null}
+
+            {/* Modal personalizado: cambios de folio sin guardar */}
+            {showUnsavedFolioModal && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[70] flex min-h-screen items-center justify-center bg-black/60 p-4"
+                  onClick={() => setShowUnsavedFolioModal(false)}
+                >
+                  <div
+                    className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">Cambios sin guardar</h3>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      Tiene cambios de folio sin guardar. Guarde o cancele la edición antes de cerrar.
+                    </p>
+                    <div className="mt-5 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowUnsavedFolioModal(false)}
+                        className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                      >
+                        Entendido
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+
+            {/* Modal personalizado: cambios de habitación sin guardar */}
+            {showUnsavedRoomModal && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[70] flex min-h-screen items-center justify-center bg-black/60 p-4"
+                  onClick={() => setShowUnsavedRoomModal(false)}
+                >
+                  <div
+                    className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">Cambios sin guardar</h3>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      Tiene cambios de habitación sin guardar. Guarde o cancele la edición antes de cerrar.
+                    </p>
+                    <div className="mt-5 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowUnsavedRoomModal(false)}
+                        className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                      >
+                        Entendido
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+
+            {/* Modal personalizado: cambios de total sin guardar */}
+            {showUnsavedTotalModal && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[70] flex min-h-screen items-center justify-center bg-black/60 p-4"
+                  onClick={() => setShowUnsavedTotalModal(false)}
+                >
+                  <div
+                    className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">Cambios sin guardar</h3>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      Tiene cambios de monto total sin guardar. Guarde o cancele la edición antes de cerrar.
+                    </p>
+                    <div className="mt-5 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowUnsavedTotalModal(false)}
+                        className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                      >
+                        Entendido
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+
+            {/* Modal personalizado: cambios de tarjeta de consumo sin guardar */}
+            {showUnsavedConsumptionModal && typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[70] flex min-h-screen items-center justify-center bg-black/60 p-4"
+                  onClick={() => setShowUnsavedConsumptionModal(false)}
+                >
+                  <div
+                    className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">Cambios sin guardar</h3>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      Tiene datos de tarjeta de consumo sin guardar. Guarde o cancele la edición antes de cerrar.
+                    </p>
+                    <div className="mt-5 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowUnsavedConsumptionModal(false)}
+                        className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                      >
+                        Entendido
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
 
             {/* Modal ver foto tarjeta de ingreso en grande */}
             {entryCardPreviewUrl && typeof document !== "undefined" &&
@@ -2412,7 +2773,7 @@ export function AdminReservationsView({
                   <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-lg font-semibold text-[var(--foreground)]">Tarjeta de consumo</h3>
-                      <button type="button" onClick={() => setConsumptionFormOpen(false)} className="rounded p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20"><X className="h-5 w-5" /></button>
+                      <button type="button" onClick={tryCloseConsumptionForm} className="rounded p-1.5 text-[var(--muted)] hover:bg-[var(--muted)]/20"><X className="h-5 w-5" /></button>
                     </div>
                     {consumptionFormError && <p className="mb-3 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-sm text-[var(--destructive)]">{consumptionFormError}</p>}
                     <form
@@ -2512,7 +2873,7 @@ export function AdminReservationsView({
                         </label>
                       </div>
                       <div className="flex gap-2 pt-2">
-                        <button type="button" onClick={() => setConsumptionFormOpen(false)} className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium">Cancelar</button>
+                        <button type="button" onClick={tryCloseConsumptionForm} className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm font-medium">Cancelar</button>
                         <button type="submit" disabled={consumptionFormSaving} className="flex-1 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60">
                           {consumptionFormSaving ? "Guardando…" : "Guardar"}
                         </button>

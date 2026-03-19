@@ -6,6 +6,7 @@ import { getGuests } from "@/lib/queries/guests";
 import { AdminReservationsView } from "@/components/reservations/admin-reservations-view";
 import { ReceptionistReservationsView } from "@/components/reservations/receptionist-reservations-view";
 import type { Prisma } from "@prisma/client";
+import { extractReservationGroupId } from "@/lib/reservation-groups";
 
 type ReservationWithRelations = Prisma.ReservationGetPayload<{
   include: { guest: true; room: true; payments: true; processedBy: { select: { id: true; fullName: true } } };
@@ -18,7 +19,7 @@ export default async function ReservationsPage() {
     getRooms(session.user.establishmentId),
     getGuests(session.user.establishmentId),
   ]);
-  const reservations = raw
+  const normalized = raw
     .filter((r) => r.guest != null && r.room != null)
     .map((r) => {
       const guest = r.guest!;
@@ -29,6 +30,7 @@ export default async function ReservationsPage() {
       const totalToPay = r.totalAmount + consumptionSum;
       return {
         id: r.id,
+        group_key: extractReservationGroupId((r as { notes?: string | null }).notes ?? null) ?? undefined,
         guest_name: guest.fullName,
         guest_email: guest.email ?? "",
         guest_phone: guest.phone ?? "",
@@ -75,8 +77,40 @@ export default async function ReservationsPage() {
             receipt_entries: receipt_entries ?? undefined,
           };
         }),
-      };
+      } as const;
     });
+  const groupedMap = new Map<string, (typeof normalized)[number][]>();
+  for (const r of normalized) {
+    const key = r.group_key ? `grp:${r.group_key}` : `single:${r.id}`;
+    const list = groupedMap.get(key) ?? [];
+    list.push(r);
+    groupedMap.set(key, list);
+  }
+  const reservations = Array.from(groupedMap.values()).map((rows) => {
+    if (rows.length === 1) return rows[0];
+    const first = rows[0];
+    const roomNumbersGrouped = rows.map((x) => x.room_number).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const total = rows.reduce((s, x) => s + x.total_price, 0);
+    const paid = rows.reduce((s, x) => s + (x.paid_amount ?? 0), 0);
+    const pending = Math.max(0, total - paid);
+    const guests = rows.reduce((s, x) => s + x.guests, 0);
+    const payments = rows.flatMap((x) => x.payments ?? []);
+    const consumptions = rows.flatMap((x) => x.consumptions ?? []);
+    return {
+      ...first,
+      room_number: roomNumbersGrouped.join(", "),
+      room_id: first.room_id,
+      room_type: "MULTIROOM",
+      total_price: total,
+      paid_amount: paid,
+      pending_amount: pending,
+      guests,
+      payments,
+      consumptions,
+      grouped_room_count: rows.length,
+      grouped_room_numbers: roomNumbersGrouped,
+    };
+  });
   const roomNumbers = rooms.map((r) => r.roomNumber).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const roomsForForm = rooms.map((r) => ({ id: r.id, roomNumber: r.roomNumber, pricePerNight: r.pricePerNight }));
   const guestsForForm = guests.map((g) => ({

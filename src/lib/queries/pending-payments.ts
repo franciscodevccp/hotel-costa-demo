@@ -1,5 +1,6 @@
 import { addDays, isWeekend, startOfDay } from "date-fns";
 import { prisma } from "@/lib/db";
+import { extractReservationGroupId } from "@/lib/reservation-groups";
 
 function addBusinessDays(from: Date, days: number): Date {
   let d = new Date(from);
@@ -65,8 +66,9 @@ export async function getPendingCompanies(establishmentId: string) {
         ? addBusinessDays(r.checkOut, r.paymentTermDays)
         : r.checkOut;
     const business_days_remaining = businessDaysBetween(today, due_date);
+    const groupId = extractReservationGroupId((r as { notes?: string | null }).notes ?? null);
     out.push({
-      id: r.id,
+      id: groupId ? `grp:${groupId}` : r.id,
       companyName: r.companyName!,
       companyRut: r.companyRut,
       companyEmail: r.companyEmail,
@@ -80,7 +82,24 @@ export async function getPendingCompanies(establishmentId: string) {
       business_days_remaining,
     });
   }
-  return out;
+  const grouped = new Map<string, (typeof out)[number]>();
+  for (const row of out) {
+    const prev = grouped.get(row.id);
+    if (!prev) {
+      grouped.set(row.id, row);
+      continue;
+    }
+    const rooms = new Set(`${prev.roomNumber}, ${row.roomNumber}`.split(", ").filter(Boolean));
+    prev.roomNumber = Array.from(rooms).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", ");
+    prev.totalAmount += row.totalAmount;
+    prev.paidAmount += row.paidAmount;
+    prev.pendingAmount += row.pendingAmount;
+    if (row.business_days_remaining < prev.business_days_remaining) {
+      prev.business_days_remaining = row.business_days_remaining;
+      prev.due_date = row.due_date;
+    }
+  }
+  return Array.from(grouped.values());
 }
 
 /** Personas y empresas sin orden de compra: todas las reservas con saldo pendiente que no entran en "empresas con días hábiles". */
@@ -117,8 +136,9 @@ export async function getPendingPersons(establishmentId: string) {
     const paid = sum._sum.amount ?? 0;
     const pending = totalToPay - paid;
     if (pending <= 0) continue;
+    const groupId = extractReservationGroupId((r as { notes?: string | null }).notes ?? null);
     out.push({
-      id: r.id,
+      id: groupId ? `grp:${groupId}` : r.id,
       guestName: r.guest.fullName,
       roomNumber: r.room.roomNumber,
       totalAmount: totalToPay,
@@ -129,7 +149,21 @@ export async function getPendingPersons(establishmentId: string) {
       companyName: r.companyName,
     });
   }
-  return out;
+  const grouped = new Map<string, (typeof out)[number]>();
+  for (const row of out) {
+    const prev = grouped.get(row.id);
+    if (!prev) {
+      grouped.set(row.id, row);
+      continue;
+    }
+    const rooms = new Set(`${prev.roomNumber}, ${row.roomNumber}`.split(", ").filter(Boolean));
+    prev.roomNumber = Array.from(rooms).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", ");
+    prev.totalAmount += row.totalAmount;
+    prev.paidAmount += row.paidAmount;
+    prev.pendingAmount += row.pendingAmount;
+    if (row.checkOut > prev.checkOut) prev.checkOut = row.checkOut;
+  }
+  return Array.from(grouped.values());
 }
 
 /** Todas las reservas con saldo pendiente (personas + empresas) para la página de Pagos. totalAmount es el de la reserva (personalizado o predeterminado). */

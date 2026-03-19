@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncMotopressBookings } from "@/lib/motopress-sync";
 import { pushBookingToMotopress, cancelBookingInMotopress, updateBookingDatesInMotopress, updateBookingRoomInMotopress } from "@/lib/motopress-push";
+import { buildReservationNotesWithGroup, extractReservationGroupId } from "@/lib/reservation-groups";
 
 export type CreateReservationState = { error?: string; success?: boolean };
 
@@ -154,7 +155,7 @@ export async function createReservationsBulk(payload: {
   guestId: string;
   checkIn: string;
   checkOut: string;
-  rooms: Array<{ roomId: string; numGuests: number }>;
+  rooms: Array<{ roomId: string; numGuests: number; folioNumber?: string | null }>;
   downPayment: number;
   downPaymentMethod: string;
   paymentTermDays?: number | null;
@@ -241,6 +242,10 @@ export async function createReservationsBulk(payload: {
       isPurchaseOrder && paymentTermDays != null && paymentTermDays >= 1 ? { paymentTermDays } : {};
 
     let downPaymentRemaining = Math.max(0, downPayment);
+    const groupId =
+      validLines.length > 1
+        ? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        : null;
     let created = 0;
 
     for (let i = 0; i < validLines.length; i++) {
@@ -264,10 +269,10 @@ export async function createReservationsBulk(payload: {
           checkOut,
           numGuests: Math.min(10, Math.max(1, line.numGuests)),
           totalAmount,
-          notes: notes?.trim() || null,
+          notes: groupId ? buildReservationNotesWithGroup(notes, groupId) : notes?.trim() || null,
           status: "PENDING",
           source: "MANUAL",
-          folioNumber: folioTrim,
+          folioNumber: line.folioNumber?.trim() || folioTrim,
           processedByName: nameTrim,
           ...companyData,
           ...paymentTermData,
@@ -356,13 +361,27 @@ export async function updateReservationStatus(
   }
 
   try {
+    const reservation = await prisma.reservation.findFirst({
+      where: { id: reservationId, establishmentId: session.user.establishmentId },
+      select: { id: true, motopressId: true, notes: true },
+    });
+    if (!reservation) return { error: "Reserva no encontrada" };
+    const groupId = extractReservationGroupId(reservation.notes);
+    const groupReservations = groupId
+      ? await prisma.reservation.findMany({
+          where: { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+          select: { id: true, motopressId: true },
+        })
+      : [{ id: reservation.id, motopressId: reservation.motopressId }];
+
     if (status === "CANCELLED") {
-      const reservation = await prisma.reservation.findFirst({
-        where: { id: reservationId, establishmentId: session.user.establishmentId },
-        select: { motopressId: true },
-      });
-      if (reservation?.motopressId) {
-        await cancelBookingInMotopress(reservation.motopressId);
+      for (const r of groupReservations) {
+        if (!r.motopressId) continue;
+        try {
+          await cancelBookingInMotopress(r.motopressId);
+        } catch {
+          // continuar con el resto
+        }
       }
     }
     const now = new Date();
@@ -371,10 +390,9 @@ export async function updateReservationStatus(
     if (status === "CHECKED_OUT") data.checkedOutAt = now;
 
     const updated = await prisma.reservation.updateMany({
-      where: {
-        id: reservationId,
-        establishmentId: session.user.establishmentId,
-      },
+      where: groupId
+        ? { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } }
+        : { id: reservationId, establishmentId: session.user.establishmentId },
       data,
     });
     if (updated.count === 0) {
@@ -417,7 +435,7 @@ export async function updateReservationDates(
 
   const reservation = await prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId },
-    select: { id: true, roomId: true, status: true, motopressId: true },
+    select: { id: true, roomId: true, status: true, motopressId: true, notes: true },
   });
   if (!reservation) return { error: "Reserva no encontrada" };
 
@@ -426,24 +444,31 @@ export async function updateReservationDates(
     return { error: "Solo se pueden cambiar fechas en reservas pendientes, confirmadas o con check-in realizado" };
   }
 
-  const otherInSameRoom = await prisma.reservation.findMany({
-    where: {
-      establishmentId,
-      roomId: reservation.roomId,
-      id: { not: reservationId },
-      status: { notIn: ["CANCELLED", "NO_SHOW", "CHECKED_OUT"] },
-    },
-    select: { checkIn: true, checkOut: true, status: true },
-  });
+  const groupId = extractReservationGroupId(reservation.notes);
+  const targetReservations = groupId
+    ? await prisma.reservation.findMany({
+        where: { establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+        select: { id: true, roomId: true, motopressId: true },
+      })
+    : [{ id: reservation.id, roomId: reservation.roomId, motopressId: reservation.motopressId }];
 
-  for (const other of otherInSameRoom) {
-    const otherStart = other.checkIn.getTime();
-    const otherEnd = other.checkOut.getTime();
-    const newStart = newCheckIn.getTime();
-    const newEnd = newCheckOut.getTime();
-    const overlap = otherStart < newEnd && (other.status === "CHECKED_OUT" ? otherEnd > newStart : otherEnd >= newStart);
-    if (overlap) {
-      return { error: "La habitación no está disponible en las fechas elegidas" };
+  for (const target of targetReservations) {
+    const otherInSameRoom = await prisma.reservation.findMany({
+      where: {
+        establishmentId,
+        roomId: target.roomId,
+        id: { not: target.id },
+        status: { notIn: ["CANCELLED", "NO_SHOW", "CHECKED_OUT"] },
+      },
+      select: { checkIn: true, checkOut: true, status: true },
+    });
+    for (const other of otherInSameRoom) {
+      const otherStart = other.checkIn.getTime();
+      const otherEnd = other.checkOut.getTime();
+      const newStart = newCheckIn.getTime();
+      const newEnd = newCheckOut.getTime();
+      const overlap = otherStart < newEnd && (other.status === "CHECKED_OUT" ? otherEnd > newStart : otherEnd >= newStart);
+      if (overlap) return { error: "Una de las habitaciones del grupo no está disponible en las fechas elegidas" };
     }
   }
 
@@ -451,13 +476,16 @@ export async function updateReservationDates(
   const checkOutDate = new Date(newCheckOut.getFullYear(), newCheckOut.getMonth(), newCheckOut.getDate(), 0, 0, 0, 0);
 
   await prisma.reservation.updateMany({
-    where: { id: reservationId, establishmentId },
+    where: groupId
+      ? { establishmentId, notes: { contains: `[GRP:${groupId}]` } }
+      : { id: reservationId, establishmentId },
     data: { checkIn: checkInDate, checkOut: checkOutDate },
   });
 
-  if (reservation.motopressId) {
+  for (const target of targetReservations) {
+    if (!target.motopressId) continue;
     try {
-      await updateBookingDatesInMotopress(reservation.motopressId, checkInDate, checkOutDate);
+      await updateBookingDatesInMotopress(target.motopressId, checkInDate, checkOutDate);
     } catch {
       // No fallar la acción: las fechas ya se actualizaron en MiHostal; la web se puede corregir después
     }
@@ -544,6 +572,100 @@ export async function updateReservationRoom(
   return { success: true };
 }
 
+export type UpdateReservationGroupRoomsState = { error?: string; success?: boolean };
+
+/** Cambia varias habitaciones de una reserva grupal respetando disponibilidad. */
+export async function updateReservationGroupRooms(
+  reservationId: string,
+  newRoomIds: string[]
+): Promise<UpdateReservationGroupRoomsState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) return { error: "No autorizado" };
+  const establishmentId = session.user.establishmentId;
+  if (!Array.isArray(newRoomIds) || newRoomIds.length === 0) {
+    return { error: "No se recibieron habitaciones para actualizar" };
+  }
+
+  const reservation = await prisma.reservation.findFirst({
+    where: { id: reservationId, establishmentId },
+    select: { id: true, notes: true, status: true },
+  });
+  if (!reservation) return { error: "Reserva no encontrada" };
+  const groupId = extractReservationGroupId(reservation.notes);
+  if (!groupId) return { error: "Esta reserva no pertenece a un grupo" };
+
+  const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
+  if (!activeStatuses.includes(reservation.status as (typeof activeStatuses)[number])) {
+    return { error: "Solo se puede cambiar habitación en reservas activas" };
+  }
+
+  const groupReservations = await prisma.reservation.findMany({
+    where: { establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+    include: { room: { select: { roomNumber: true } } },
+    orderBy: [{ createdAt: "asc" }],
+  });
+  if (groupReservations.length < 2) return { error: "El grupo no tiene múltiples habitaciones" };
+  if (groupReservations.length !== newRoomIds.length) {
+    return { error: "La cantidad de habitaciones no coincide con el grupo" };
+  }
+
+  const uniqueIds = new Set(newRoomIds);
+  if (uniqueIds.size !== newRoomIds.length) return { error: "No puede repetir la misma habitación en el grupo" };
+
+  const roomRows = await prisma.room.findMany({
+    where: { establishmentId, id: { in: newRoomIds } },
+    select: { id: true, externalId: true },
+  });
+  if (roomRows.length !== newRoomIds.length) return { error: "Una o más habitaciones no existen" };
+  const roomMap = new Map(roomRows.map((r) => [r.id, r]));
+
+  for (let i = 0; i < groupReservations.length; i++) {
+    const target = groupReservations[i];
+    const newRoomId = newRoomIds[i];
+    const conflicts = await prisma.reservation.findMany({
+      where: {
+        establishmentId,
+        roomId: newRoomId,
+        id: { notIn: groupReservations.map((r) => r.id) },
+        status: { notIn: ["CANCELLED", "NO_SHOW", "CHECKED_OUT"] },
+      },
+      select: { checkIn: true, checkOut: true, status: true },
+    });
+    for (const other of conflicts) {
+      const otherStart = other.checkIn.getTime();
+      const otherEnd = other.checkOut.getTime();
+      const resStart = target.checkIn.getTime();
+      const resEnd = target.checkOut.getTime();
+      const overlap = otherStart < resEnd && (other.status === "CHECKED_OUT" ? otherEnd > resStart : otherEnd >= resStart);
+      if (overlap) return { error: "Una de las habitaciones seleccionadas no está disponible para las fechas del grupo" };
+    }
+  }
+
+  await prisma.$transaction(
+    groupReservations.map((r, i) =>
+      prisma.reservation.update({
+        where: { id: r.id },
+        data: { roomId: newRoomIds[i] },
+      })
+    )
+  );
+
+  for (let i = 0; i < groupReservations.length; i++) {
+    const prev = groupReservations[i];
+    const newRoom = roomMap.get(newRoomIds[i]);
+    if (!newRoom?.externalId || !prev.motopressId) continue;
+    try {
+      await updateBookingRoomInMotopress(prev.motopressId, newRoom.externalId, prev.numGuests);
+    } catch {
+      // no bloquear: ya quedó actualizado localmente
+    }
+  }
+
+  revalidatePath("/dashboard/reservations");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
 export type UpdateReservationTotalState = { error?: string; success?: boolean };
 
 /** Modificar el monto total de una reserva ya creada (ej. al cambiar a una habitación más cara). */
@@ -560,7 +682,7 @@ export async function updateReservationTotal(
 
   const reservation = await prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId: session.user.establishmentId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, notes: true },
   });
   if (!reservation) return { error: "Reserva no encontrada" };
 
@@ -569,14 +691,80 @@ export async function updateReservationTotal(
     return { error: "Solo se puede modificar el total en reservas pendientes, confirmadas o con check-in realizado" };
   }
 
-  await prisma.reservation.updateMany({
-    where: { id: reservationId, establishmentId: session.user.establishmentId },
-    data: { totalAmount: amount },
-  });
+  const groupId = extractReservationGroupId((reservation as { notes?: string | null }).notes);
+  if (!groupId) {
+    await prisma.reservation.updateMany({
+      where: { id: reservationId, establishmentId: session.user.establishmentId },
+      data: { totalAmount: amount },
+    });
+  } else {
+    const rows = await prisma.reservation.findMany({
+      where: { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+      select: { id: true, totalAmount: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (rows.length === 0) return { error: "No se encontró el grupo de reserva" };
+    const currentTotal = rows.reduce((s, r) => s + r.totalAmount, 0);
+    const updates: Array<{ id: string; total: number }> = [];
+    if (currentTotal <= 0) {
+      updates.push({ id: rows[0].id, total: amount });
+      for (let i = 1; i < rows.length; i++) updates.push({ id: rows[i].id, total: 0 });
+    } else {
+      let assigned = 0;
+      for (let i = 0; i < rows.length; i++) {
+        if (i === rows.length - 1) {
+          updates.push({ id: rows[i].id, total: Math.max(0, amount - assigned) });
+          continue;
+        }
+        const part = Math.max(0, Math.round((rows[i].totalAmount / currentTotal) * amount));
+        assigned += part;
+        updates.push({ id: rows[i].id, total: part });
+      }
+    }
+    await prisma.$transaction(
+      updates.map((u) =>
+        prisma.reservation.updateMany({
+          where: { id: u.id, establishmentId: session.user.establishmentId },
+          data: { totalAmount: u.total },
+        })
+      )
+    );
+  }
 
   revalidatePath("/dashboard/reservations");
   revalidatePath("/dashboard/pending-payments");
   revalidatePath("/dashboard/payments");
+  return { success: true };
+}
+
+export type UpdateReservationFolioState = { error?: string; success?: boolean };
+
+/** Editar folio en una reserva; si pertenece a grupo, aplica a todas las habitaciones del grupo. */
+export async function updateReservationFolio(
+  reservationId: string,
+  folioNumber: string
+): Promise<UpdateReservationFolioState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) return { error: "No autorizado" };
+  const folio = folioNumber.trim();
+  if (!folio) return { error: "El folio es obligatorio" };
+
+  const reservation = await prisma.reservation.findFirst({
+    where: { id: reservationId, establishmentId: session.user.establishmentId },
+    select: { id: true, status: true, notes: true },
+  });
+  if (!reservation) return { error: "Reserva no encontrada" };
+  const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
+  if (!activeStatuses.includes(reservation.status as (typeof activeStatuses)[number])) {
+    return { error: "Solo se puede editar el folio en reservas activas" };
+  }
+  const groupId = extractReservationGroupId(reservation.notes);
+  const where = groupId
+    ? { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } }
+    : { id: reservation.id, establishmentId: session.user.establishmentId };
+
+  await prisma.reservation.updateMany({ where, data: { folioNumber: folio } });
+  revalidatePath("/dashboard/reservations");
   return { success: true };
 }
 
