@@ -217,14 +217,26 @@ export async function registerFirstPayment(
   }
 
   try {
-    if (reservationId.startsWith("grp:")) {
-      const groupId = reservationId.slice(4);
-      const reservations = await prisma.reservation.findMany({
-        where: {
+    const isGroupLike = reservationId.startsWith("group:") || reservationId.startsWith("grp:");
+    if (isGroupLike) {
+      let whereForGroup: Parameters<typeof prisma.reservation.findMany>[0]["where"];
+      if (reservationId.startsWith("group:")) {
+        const groupId = reservationId.slice(6);
+        whereForGroup = {
+          establishmentId: session.user.establishmentId,
+          OR: [{ groupId }, { notes: { contains: `[GRP:${groupId}]` } }],
+          status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
+        };
+      } else {
+        const groupId = reservationId.slice(4);
+        whereForGroup = {
           establishmentId: session.user.establishmentId,
           notes: { contains: `[GRP:${groupId}]` },
           status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
-        },
+        };
+      }
+      const reservations = await prisma.reservation.findMany({
+        where: whereForGroup,
         include: { payments: true, consumptions: { select: { amount: true } } },
         orderBy: { createdAt: "asc" },
       });

@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncMotopressBookings } from "@/lib/motopress-sync";
 import { pushBookingToMotopress, cancelBookingInMotopress, updateBookingDatesInMotopress, updateBookingRoomInMotopress } from "@/lib/motopress-push";
-import { buildReservationNotesWithGroup, extractReservationGroupId } from "@/lib/reservation-groups";
+import { extractReservationGroupId } from "@/lib/reservation-groups";
 
 export type CreateReservationState = { error?: string; success?: boolean };
 
@@ -177,7 +177,8 @@ export async function createReservationsBulk(payload: {
 
   const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes, customTotalAmount, folioNumber, processedByName, downPaymentReceiptUrl, downPaymentReceiptHash } = payload;
   const folioTrim = folioNumber?.trim() ?? "";
-  if (!folioTrim) return { error: "El número de folio (tarjeta de ingreso) es obligatorio" };
+  const hasIndividualFolios = roomLines?.some((line) => (line.folioNumber?.trim() ?? "") !== "");
+  if (!hasIndividualFolios && !folioTrim) return { error: "El número de folio (tarjeta de ingreso) es obligatorio" };
   const nameTrim = processedByName?.trim() ?? "";
   if (!nameTrim) return { error: "Indique el nombre del recepcionista que gestiona la reserva" };
   const isPurchaseOrder = downPaymentMethod === "PURCHASE_ORDER";
@@ -190,6 +191,9 @@ export async function createReservationsBulk(payload: {
 
   const validLines = roomLines.filter((l) => l.roomId && l.numGuests >= 1);
   if (validLines.length === 0) return { error: "Cada habitación debe tener al menos 1 huésped" };
+  if (hasIndividualFolios && validLines.some((line) => !(line.folioNumber?.trim() ?? ""))) {
+    return { error: "Debe indicar folio individual en cada habitación" };
+  }
 
   const [yIn, mIn, dIn] = checkInStr.split("-").map(Number);
   const [yOut, mOut, dOut] = checkOutStr.split("-").map(Number);
@@ -242,9 +246,20 @@ export async function createReservationsBulk(payload: {
       isPurchaseOrder && paymentTermDays != null && paymentTermDays >= 1 ? { paymentTermDays } : {};
 
     let downPaymentRemaining = Math.max(0, downPayment);
-    const groupId =
+    const reservationGroup =
       validLines.length > 1
-        ? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        ? await prisma.reservationGroup.create({
+            data: {
+              establishmentId,
+              guestId,
+              checkIn,
+              checkOut,
+              folioMode: validLines.some((line) => (line.folioNumber?.trim() ?? "") !== "") ? "INDIVIDUAL" : "GROUP",
+              folioNumber: validLines.some((line) => (line.folioNumber?.trim() ?? "") !== "") ? null : folioTrim,
+              processedByName: nameTrim,
+              notes: notes?.trim() || null,
+            },
+          })
         : null;
     let created = 0;
 
@@ -269,11 +284,12 @@ export async function createReservationsBulk(payload: {
           checkOut,
           numGuests: Math.min(10, Math.max(1, line.numGuests)),
           totalAmount,
-          notes: groupId ? buildReservationNotesWithGroup(notes, groupId) : notes?.trim() || null,
+          notes: notes?.trim() || null,
           status: "PENDING",
           source: "MANUAL",
           folioNumber: line.folioNumber?.trim() || folioTrim,
           processedByName: nameTrim,
+          groupId: reservationGroup?.id ?? null,
           ...companyData,
           ...paymentTermData,
         },
@@ -346,6 +362,28 @@ export async function createReservationsBulk(payload: {
 
 const VALID_STATUSES = ["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "NO_SHOW"] as const;
 
+type GroupTarget = { id: string; motopressId: string | null };
+
+async function getReservationTargets(
+  establishmentId: string,
+  reservation: { id: string; groupId?: string | null; notes?: string | null; motopressId?: string | null }
+): Promise<GroupTarget[]> {
+  if (reservation.groupId) {
+    return prisma.reservation.findMany({
+      where: { establishmentId, groupId: reservation.groupId },
+      select: { id: true, motopressId: true },
+    });
+  }
+  const legacyGroupId = extractReservationGroupId(reservation.notes);
+  if (legacyGroupId) {
+    return prisma.reservation.findMany({
+      where: { establishmentId, notes: { contains: `[GRP:${legacyGroupId}]` } },
+      select: { id: true, motopressId: true },
+    });
+  }
+  return [{ id: reservation.id, motopressId: reservation.motopressId ?? null }];
+}
+
 export type UpdateReservationStatusState = { error?: string; success?: boolean };
 
 export async function updateReservationStatus(
@@ -363,16 +401,10 @@ export async function updateReservationStatus(
   try {
     const reservation = await prisma.reservation.findFirst({
       where: { id: reservationId, establishmentId: session.user.establishmentId },
-      select: { id: true, motopressId: true, notes: true },
+      select: { id: true, motopressId: true, groupId: true, notes: true },
     });
     if (!reservation) return { error: "Reserva no encontrada" };
-    const groupId = extractReservationGroupId(reservation.notes);
-    const groupReservations = groupId
-      ? await prisma.reservation.findMany({
-          where: { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } },
-          select: { id: true, motopressId: true },
-        })
-      : [{ id: reservation.id, motopressId: reservation.motopressId }];
+    const groupReservations = await getReservationTargets(session.user.establishmentId, reservation);
 
     if (status === "CANCELLED") {
       for (const r of groupReservations) {
@@ -390,9 +422,7 @@ export async function updateReservationStatus(
     if (status === "CHECKED_OUT") data.checkedOutAt = now;
 
     const updated = await prisma.reservation.updateMany({
-      where: groupId
-        ? { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } }
-        : { id: reservationId, establishmentId: session.user.establishmentId },
+      where: { establishmentId: session.user.establishmentId, id: { in: groupReservations.map((r) => r.id) } },
       data,
     });
     if (updated.count === 0) {
@@ -435,7 +465,7 @@ export async function updateReservationDates(
 
   const reservation = await prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId },
-    select: { id: true, roomId: true, status: true, motopressId: true, notes: true },
+    select: { id: true, roomId: true, status: true, motopressId: true, groupId: true, notes: true },
   });
   if (!reservation) return { error: "Reserva no encontrada" };
 
@@ -444,13 +474,11 @@ export async function updateReservationDates(
     return { error: "Solo se pueden cambiar fechas en reservas pendientes, confirmadas o con check-in realizado" };
   }
 
-  const groupId = extractReservationGroupId(reservation.notes);
-  const targetReservations = groupId
-    ? await prisma.reservation.findMany({
-        where: { establishmentId, notes: { contains: `[GRP:${groupId}]` } },
-        select: { id: true, roomId: true, motopressId: true },
-      })
-    : [{ id: reservation.id, roomId: reservation.roomId, motopressId: reservation.motopressId }];
+  const targetIds = (await getReservationTargets(establishmentId, reservation)).map((r) => r.id);
+  const targetReservations = await prisma.reservation.findMany({
+    where: { establishmentId, id: { in: targetIds } },
+    select: { id: true, roomId: true, motopressId: true },
+  });
 
   for (const target of targetReservations) {
     const otherInSameRoom = await prisma.reservation.findMany({
@@ -476,9 +504,7 @@ export async function updateReservationDates(
   const checkOutDate = new Date(newCheckOut.getFullYear(), newCheckOut.getMonth(), newCheckOut.getDate(), 0, 0, 0, 0);
 
   await prisma.reservation.updateMany({
-    where: groupId
-      ? { establishmentId, notes: { contains: `[GRP:${groupId}]` } }
-      : { id: reservationId, establishmentId },
+    where: { establishmentId, id: { in: targetReservations.map((r) => r.id) } },
     data: { checkIn: checkInDate, checkOut: checkOutDate },
   });
 
@@ -588,10 +614,10 @@ export async function updateReservationGroupRooms(
 
   const reservation = await prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId },
-    select: { id: true, notes: true, status: true },
+    select: { id: true, groupId: true, notes: true, status: true },
   });
   if (!reservation) return { error: "Reserva no encontrada" };
-  const groupId = extractReservationGroupId(reservation.notes);
+  const groupId = reservation.groupId ?? extractReservationGroupId(reservation.notes);
   if (!groupId) return { error: "Esta reserva no pertenece a un grupo" };
 
   const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
@@ -600,7 +626,9 @@ export async function updateReservationGroupRooms(
   }
 
   const groupReservations = await prisma.reservation.findMany({
-    where: { establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+    where: reservation.groupId
+      ? { establishmentId, groupId: reservation.groupId }
+      : { establishmentId, notes: { contains: `[GRP:${groupId}]` } },
     include: { room: { select: { roomNumber: true } } },
     orderBy: [{ createdAt: "asc" }],
   });
@@ -682,7 +710,7 @@ export async function updateReservationTotal(
 
   const reservation = await prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId: session.user.establishmentId },
-    select: { id: true, status: true, notes: true },
+    select: { id: true, status: true, groupId: true, notes: true },
   });
   if (!reservation) return { error: "Reserva no encontrada" };
 
@@ -691,15 +719,15 @@ export async function updateReservationTotal(
     return { error: "Solo se puede modificar el total en reservas pendientes, confirmadas o con check-in realizado" };
   }
 
-  const groupId = extractReservationGroupId((reservation as { notes?: string | null }).notes);
-  if (!groupId) {
+  const targetIds = (await getReservationTargets(session.user.establishmentId, reservation)).map((r) => r.id);
+  if (targetIds.length <= 1) {
     await prisma.reservation.updateMany({
       where: { id: reservationId, establishmentId: session.user.establishmentId },
       data: { totalAmount: amount },
     });
   } else {
     const rows = await prisma.reservation.findMany({
-      where: { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+      where: { establishmentId: session.user.establishmentId, id: { in: targetIds } },
       select: { id: true, totalAmount: true },
       orderBy: { createdAt: "asc" },
     });
@@ -751,19 +779,26 @@ export async function updateReservationFolio(
 
   const reservation = await prisma.reservation.findFirst({
     where: { id: reservationId, establishmentId: session.user.establishmentId },
-    select: { id: true, status: true, notes: true },
+    select: { id: true, status: true, groupId: true, notes: true },
   });
   if (!reservation) return { error: "Reserva no encontrada" };
   const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
   if (!activeStatuses.includes(reservation.status as (typeof activeStatuses)[number])) {
     return { error: "Solo se puede editar el folio en reservas activas" };
   }
-  const groupId = extractReservationGroupId(reservation.notes);
-  const where = groupId
-    ? { establishmentId: session.user.establishmentId, notes: { contains: `[GRP:${groupId}]` } }
-    : { id: reservation.id, establishmentId: session.user.establishmentId };
+  const targetIds = (await getReservationTargets(session.user.establishmentId, reservation)).map((r) => r.id);
+  const where =
+    targetIds.length > 1
+      ? { establishmentId: session.user.establishmentId, id: { in: targetIds } }
+      : { id: reservation.id, establishmentId: session.user.establishmentId };
 
   await prisma.reservation.updateMany({ where, data: { folioNumber: folio } });
+  if (reservation.groupId) {
+    await prisma.reservationGroup.updateMany({
+      where: { id: reservation.groupId, establishmentId: session.user.establishmentId },
+      data: { folioNumber: folio },
+    });
+  }
   revalidatePath("/dashboard/reservations");
   return { success: true };
 }
@@ -906,20 +941,27 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
 
     const reservation = await prisma.reservation.findFirst({
       where: { id: reservationId, establishmentId: session.user.establishmentId },
-      select: { motopressId: true },
+      select: { id: true, motopressId: true, groupId: true, notes: true },
     });
-    if (reservation?.motopressId) {
+    if (!reservation) return { error: "Reserva no encontrada" };
+
+    const targetReservations = await getReservationTargets(session.user.establishmentId, reservation);
+
+    for (const r of targetReservations) {
+      if (!r.motopressId) continue;
       try {
-        await cancelBookingInMotopress(reservation.motopressId);
+        await cancelBookingInMotopress(r.motopressId);
       } catch {
-        // Si falla cancelar en MotoPress, igual eliminamos la reserva local
+        // Si falla cancelar en MotoPress, igual eliminamos local
       }
     }
+
     await prisma.$transaction(async (tx) => {
-      await tx.payment.deleteMany({ where: { reservationId } });
+      const ids = targetReservations.map((r) => r.id);
+      await tx.payment.deleteMany({ where: { reservationId: { in: ids } } });
       const deleted = await tx.reservation.deleteMany({
         where: {
-          id: reservationId,
+          id: { in: ids },
           establishmentId: session.user.establishmentId,
         },
       });
@@ -927,19 +969,25 @@ export async function deleteReservation(reservationId: string): Promise<DeleteRe
         throw new Error("Reserva no encontrada");
       }
       // Guardar en lista de ignoradas para que al sincronizar de nuevo no vuelva a aparecer
-      if (reservation?.motopressId) {
+      for (const r of targetReservations) {
+        if (!r.motopressId) continue;
         await tx.motopressIgnoredBooking.upsert({
           where: {
             establishmentId_motopressId: {
               establishmentId: session.user.establishmentId,
-              motopressId: reservation.motopressId,
+              motopressId: r.motopressId,
             },
           },
           create: {
             establishmentId: session.user.establishmentId,
-            motopressId: reservation.motopressId,
+            motopressId: r.motopressId,
           },
           update: {},
+        });
+      }
+      if (reservation.groupId) {
+        await tx.reservationGroup.deleteMany({
+          where: { id: reservation.groupId, establishmentId: session.user.establishmentId },
         });
       }
     });

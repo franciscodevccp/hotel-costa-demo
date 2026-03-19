@@ -60,15 +60,14 @@ export async function getPendingCompanies(establishmentId: string) {
     });
     const paid = sum._sum.amount ?? 0;
     const pending = totalToPay - paid;
-    if (pending <= 0) continue;
     const due_date =
       r.paymentTermDays != null && r.paymentTermDays > 0
         ? addBusinessDays(r.checkOut, r.paymentTermDays)
         : r.checkOut;
     const business_days_remaining = businessDaysBetween(today, due_date);
-    const groupId = extractReservationGroupId((r as { notes?: string | null }).notes ?? null);
+    const groupId = (r as { groupId?: string | null }).groupId ?? extractReservationGroupId((r as { notes?: string | null }).notes ?? null);
     out.push({
-      id: groupId ? `grp:${groupId}` : r.id,
+      id: groupId ? `group:${groupId}` : r.id,
       companyName: r.companyName!,
       companyRut: r.companyRut,
       companyEmail: r.companyEmail,
@@ -99,7 +98,7 @@ export async function getPendingCompanies(establishmentId: string) {
       prev.due_date = row.due_date;
     }
   }
-  return Array.from(grouped.values());
+  return Array.from(grouped.values()).filter((row) => row.pendingAmount > 0);
 }
 
 /** Personas y empresas sin orden de compra: todas las reservas con saldo pendiente que no entran en "empresas con días hábiles". */
@@ -135,10 +134,9 @@ export async function getPendingPersons(establishmentId: string) {
     });
     const paid = sum._sum.amount ?? 0;
     const pending = totalToPay - paid;
-    if (pending <= 0) continue;
-    const groupId = extractReservationGroupId((r as { notes?: string | null }).notes ?? null);
+    const groupId = (r as { groupId?: string | null }).groupId ?? extractReservationGroupId((r as { notes?: string | null }).notes ?? null);
     out.push({
-      id: groupId ? `grp:${groupId}` : r.id,
+      id: groupId ? `group:${groupId}` : r.id,
       guestName: r.guest.fullName,
       roomNumber: r.room.roomNumber,
       totalAmount: totalToPay,
@@ -163,7 +161,7 @@ export async function getPendingPersons(establishmentId: string) {
     prev.pendingAmount += row.pendingAmount;
     if (row.checkOut > prev.checkOut) prev.checkOut = row.checkOut;
   }
-  return Array.from(grouped.values());
+  return Array.from(grouped.values()).filter((row) => row.pendingAmount > 0);
 }
 
 /** Todas las reservas con saldo pendiente (personas + empresas) para la página de Pagos. totalAmount es el de la reserva (personalizado o predeterminado). */

@@ -30,7 +30,10 @@ export default async function ReservationsPage() {
       const totalToPay = r.totalAmount + consumptionSum;
       return {
         id: r.id,
-        group_key: extractReservationGroupId((r as { notes?: string | null }).notes ?? null) ?? undefined,
+        group_key:
+          (r as { groupId?: string | null }).groupId ??
+          extractReservationGroupId((r as { notes?: string | null }).notes ?? null) ??
+          undefined,
         guest_name: guest.fullName,
         guest_email: guest.email ?? "",
         guest_phone: guest.phone ?? "",

@@ -33,6 +33,7 @@ model Establishment {
   receivables  Receivable[]
   payables     Payable[]
   motopressIgnoredBookings MotopressIgnoredBooking[]
+  reservationGroups ReservationGroup[]
 }
 
 // ─── User ─────────────────────────────────────────────────────────────────
@@ -131,10 +132,37 @@ model Guest {
 
   establishment Establishment @relation(fields: [establishmentId], references: [id])
   reservations  Reservation[]
+  reservationGroups ReservationGroup[]
 
   @@index([establishmentId])
   @@index([fullName])
   @@index([type])
+}
+
+enum ReservationFolioMode {
+  GROUP
+  INDIVIDUAL
+}
+
+model ReservationGroup {
+  id              String               @id @default(cuid())
+  establishmentId String
+  guestId         String
+  checkIn         DateTime
+  checkOut        DateTime
+  folioMode       ReservationFolioMode @default(GROUP)
+  folioNumber     String?
+  processedByName String?
+  notes           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  guest         Guest         @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  reservations  Reservation[]
+
+  @@index([establishmentId, checkIn, checkOut])
+  @@index([guestId])
 }
 
 // ─── Reservation ───────────────────────────────────────────────────────────
@@ -143,6 +171,7 @@ model Reservation {
   establishmentId String
   roomId          String
   guestId         String
+  groupId         String?
   checkIn         DateTime
   checkOut        DateTime
   numGuests       Int               @default(1)
@@ -172,6 +201,7 @@ model Reservation {
   establishment Establishment @relation(fields: [establishmentId], references: [id])
   room          Room          @relation(fields: [roomId], references: [id])
   guest         Guest         @relation(fields: [guestId], references: [id])
+  group         ReservationGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   processedBy   User?         @relation("ProcessedBy", fields: [processedById], references: [id])
   payments      Payment[]
   consumptions  Consumption[]
@@ -181,6 +211,7 @@ model Reservation {
   @@index([guestId])
   @@index([checkIn])
   @@index([checkOut])
+  @@index([groupId])
 }
 
 enum ReservationStatus {
