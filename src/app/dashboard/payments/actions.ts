@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { PaymentMethod, PaymentStatus } from "@prisma/client";
+import { PaymentMethod, PaymentStatus, Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -219,7 +219,7 @@ export async function registerFirstPayment(
   try {
     const isGroupLike = reservationId.startsWith("group:") || reservationId.startsWith("grp:");
     if (isGroupLike) {
-      let whereForGroup: Parameters<typeof prisma.reservation.findMany>[0]["where"];
+      let whereForGroup: Prisma.ReservationWhereInput;
       if (reservationId.startsWith("group:")) {
         const groupId = reservationId.slice(6);
         whereForGroup = {
