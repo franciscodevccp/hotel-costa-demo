@@ -853,9 +853,13 @@ export function AdminReservationsView({
                         {roomLines.map((line, index) => (
                           <div
                             key={index}
-                            className={`mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-[var(--border)] p-3 sm:gap-4 ${!newCheckIn || !newCheckOut ? "bg-[var(--muted)]/10 opacity-90" : "bg-[var(--background)]/50"}`}
+                            className={`mb-3 grid grid-cols-1 items-end gap-3 rounded-lg border border-[var(--border)] p-3 ${
+                              newFolioMode === "PER_ROOM" && newCheckIn && newCheckOut
+                                ? "sm:grid-cols-[minmax(0,1fr)_minmax(8.5rem,9.5rem)_minmax(10rem,11rem)_auto]"
+                                : "sm:grid-cols-[minmax(0,1fr)_minmax(8.5rem,9.5rem)_auto]"
+                            } ${!newCheckIn || !newCheckOut ? "bg-[var(--muted)]/10 opacity-90" : "bg-[var(--background)]/50"}`}
                           >
-                            <div className="min-w-0 flex-1 basis-48">
+                            <div className="min-w-0">
                               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Habitación</label>
                               <CustomSelect
                                 value={line.roomId}
@@ -880,7 +884,7 @@ export function AdminReservationsView({
                                 aria-label={`Habitación ${index + 1}`}
                               />
                             </div>
-                            <div className="min-w-[7.5rem] shrink-0 sm:min-w-[8.5rem]">
+                            <div className="min-w-[7.5rem]">
                               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Huéspedes</label>
                               <CustomSelect
                                 value={String(line.numGuests)}
@@ -900,8 +904,8 @@ export function AdminReservationsView({
                                 className="min-w-full"
                               />
                             </div>
-                            {newFolioMode === "PER_ROOM" && (
-                              <div className="min-w-[9rem] shrink-0 sm:min-w-[10rem]">
+                            {newFolioMode === "PER_ROOM" && newCheckIn && newCheckOut && (
+                              <div className="min-w-[9rem]">
                                 <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Folio</label>
                                 <input
                                   type="text"
@@ -922,7 +926,7 @@ export function AdminReservationsView({
                                 setRoomLines((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev))
                               }
                               disabled={!newCheckIn || !newCheckOut}
-                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:pointer-events-none disabled:opacity-50"
+                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:border-[var(--destructive)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] disabled:pointer-events-none disabled:opacity-50 sm:justify-self-end"
                               title="Quitar habitación"
                               aria-label="Quitar habitación"
                             >
