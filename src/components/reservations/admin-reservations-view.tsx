@@ -697,7 +697,7 @@ export function AdminReservationsView({
                         <p className="mt-0.5 text-xs text-[var(--muted)]">
                           {newFolioMode === "GROUP"
                             ? "Número único para todas las habitaciones del grupo."
-                            : "Ingrese el folio en cada línea de habitación."}
+                            : "Use este modo cuando necesite un folio individual por habitación (no un folio grupal único)."}
                         </p>
                       </div>
                       <div className="relative">
