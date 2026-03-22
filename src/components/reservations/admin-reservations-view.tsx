@@ -492,7 +492,7 @@ export function AdminReservationsView({
         return d ? d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" }) : dateString;
     };
 
-    // Calendario: obtener reserva que incluye un día para una habitación (check-in y check-out inclusivos)
+    // Calendario: obtener reserva que incluye un día para una habitación (check-in inclusivo, check-out exclusivo)
     const getReservationForDay = (roomNumber: string, day: Date) => {
         return reservations.find((r) => {
             if (r.room_number !== roomNumber) return false;
@@ -501,7 +501,8 @@ export function AdminReservationsView({
             if (!start || !end) return false;
             const sameDayStay = isSameDay(start, end);
             if (sameDayStay) return isSameDay(day, start);
-            return isWithinInterval(day, { start, end });
+            const dayTime = day.getTime();
+            return dayTime >= start.getTime() && dayTime < end.getTime();
         });
     };
 
@@ -522,10 +523,11 @@ export function AdminReservationsView({
         const end = parseLocalDateStr(r.check_out);
         if (!start || !end) return 0;
         if (isSameDay(start, end)) return 1;
+        const lastNight = addDays(end, -1);
         const monthStart = startOfMonth(calendarDate);
         const monthEnd = addDays(startOfMonth(calendarDate), getDaysInMonth(calendarDate) - 1);
         const effectiveStart = start < monthStart ? monthStart : start;
-        const effectiveEnd = end > monthEnd ? monthEnd : end;
+        const effectiveEnd = lastNight > monthEnd ? monthEnd : lastNight;
         if (day < effectiveStart || day > effectiveEnd) return 0;
         return differenceInDays(effectiveEnd, day) + 1;
     };
