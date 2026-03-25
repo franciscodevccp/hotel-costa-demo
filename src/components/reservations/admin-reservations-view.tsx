@@ -239,11 +239,17 @@ export function AdminReservationsView({
       }
     }, [newGuestOpen]);
 
-    // Sincronizar reserva seleccionada con datos actualizados (ej. tras guardar un consumo)
+    // Sincronizar reserva seleccionada con datos actualizados (ej. tras guardar un consumo o eliminar habitación de grupo)
     useEffect(() => {
       if (!selectedReservation) return;
       const updated = reservations.find((r) => r.id === selectedReservation.id);
-      if (updated) setSelectedReservation(updated);
+      if (updated) {
+        setSelectedReservation(updated);
+      } else if (selectedReservation.group_key) {
+        const byGroup = reservations.find((r) => r.group_key === selectedReservation.group_key);
+        if (byGroup) setSelectedReservation(byGroup);
+        else setSelectedReservation(null);
+      }
     }, [reservations, selectedReservation?.id]);
 
     // Si cambia a huésped persona/club y tenía Orden de compra, volver a método normal
