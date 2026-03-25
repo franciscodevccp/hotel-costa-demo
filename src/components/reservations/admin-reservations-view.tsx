@@ -8,7 +8,7 @@ import { Calendar, Search, Plus, Users, ChevronLeft, ChevronRight, Home, X, Mail
 import { CustomSelect } from "@/components/ui/custom-select";
 import { addMonths, subMonths, format, getDaysInMonth, startOfMonth, startOfDay, isWithinInterval, isSameDay, addDays, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { createReservationsBulk, updateReservationStatus, updateReservationDates, updateReservationRoom, updateReservationGroupRooms, updateReservationTotal, updateReservationFolio, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
+import { createReservationsBulk, updateReservationStatus, updateReservationDates, updateReservationRoom, updateReservationGroupRooms, removeRoomFromGroup, updateReservationTotal, updateReservationFolio, deleteReservation, updateReservationEntryCard, createConsumption, updateConsumptionCardImage, deleteConsumption, syncMotopressReservations, type CreateReservationsBulkState } from "@/app/dashboard/reservations/actions";
 import { createGuest, type CreateGuestState } from "@/app/dashboard/guests/actions";
 import { formatChileanPhone, PHONE_CHILE_MAX_LENGTH } from "@/lib/utils/phone";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -139,7 +139,7 @@ export function AdminReservationsView({
     const [newPaymentTermDays, setNewPaymentTermDays] = useState<number>(0);
     const [newNotes, setNewNotes] = useState("");
     const [newFolioNumber, setNewFolioNumber] = useState("");
-    const [newFolioMode, setNewFolioMode] = useState<"GROUP" | "PER_ROOM">("GROUP");
+    
     const [newProcessedByName, setNewProcessedByName] = useState("");
     const [receptionistDropdownOpen, setReceptionistDropdownOpen] = useState(false);
     const [reservationState, setReservationState] = useState<CreateReservationsBulkState>(initialReservationState);
@@ -160,6 +160,8 @@ export function AdminReservationsView({
     const [editGroupRoomInitialIds, setEditGroupRoomInitialIds] = useState<string[]>([]);
     const [updateRoomSaving, setUpdateRoomSaving] = useState(false);
     const [updateRoomError, setUpdateRoomError] = useState<string | null>(null);
+    const [removingGroupRoom, setRemovingGroupRoom] = useState<string | null>(null);
+    const [confirmRemoveRoom, setConfirmRemoveRoom] = useState<string | null>(null);
     const [editTotalOpen, setEditTotalOpen] = useState(false);
     const [editTotalValue, setEditTotalValue] = useState("");
     const [editTotalInitialValue, setEditTotalInitialValue] = useState("");
@@ -329,7 +331,6 @@ export function AdminReservationsView({
         setNewDownPaymentMethod("CASH");
         setNewNotes("");
         setNewFolioNumber("");
-        setNewFolioMode("GROUP");
         setReservationState({});
       }
     }, [newReservationOpen]);
@@ -585,7 +586,7 @@ export function AdminReservationsView({
                       className="flex min-h-0 flex-1 flex-col"
                       onSubmit={async (e) => {
                         e.preventDefault();
-                        if (newFolioMode === "GROUP" && !newFolioNumber?.trim()) {
+                        if (!newFolioNumber?.trim()) {
                           setReservationState({ error: "Indique el número de folio (tarjeta de ingreso)" });
                           return;
                         }
@@ -600,10 +601,6 @@ export function AdminReservationsView({
                         const validLines = roomLines.filter((l) => l.roomId && l.numGuests >= 1);
                         if (validLines.length === 0) {
                           setReservationState({ error: "Agregue al menos una habitación e indique huéspedes" });
-                          return;
-                        }
-                        if (newFolioMode === "PER_ROOM" && validLines.some((l) => !(l.folioNumber?.trim()))) {
-                          setReservationState({ error: "Complete el folio en cada habitación" });
                           return;
                         }
                         if (!newCheckIn || !newCheckOut) {
@@ -648,7 +645,7 @@ export function AdminReservationsView({
                           paymentTermDays: newDownPaymentMethod === "PURCHASE_ORDER" && newPaymentTermDays >= 1 ? newPaymentTermDays : undefined,
                           notes: newNotes || undefined,
                           customTotalAmount: newTotalAmount > 0 ? newTotalAmount : undefined,
-                          folioNumber: newFolioMode === "GROUP" ? newFolioNumber.trim() : "POR_HABITACION",
+                          folioNumber: newFolioNumber.trim(),
                           processedByName: newProcessedByName.trim(),
                           downPaymentReceiptUrl: receiptUrl,
                           downPaymentReceiptHash: receiptHash,
@@ -671,36 +668,14 @@ export function AdminReservationsView({
                       )}
                       <div>
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Nº de folio (tarjeta de ingreso) *</label>
-                        <div className="mb-2 flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setNewFolioMode("GROUP")}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${newFolioMode === "GROUP" ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]" : "border-[var(--border)] text-[var(--muted)]"}`}
-                          >
-                            Folio grupal
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setNewFolioMode("PER_ROOM")}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${newFolioMode === "PER_ROOM" ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]" : "border-[var(--border)] text-[var(--muted)]"}`}
-                          >
-                            Folio individual
-                          </button>
-                        </div>
                         <input
                           type="text"
                           value={newFolioNumber}
                           onChange={(e) => setNewFolioNumber(e.target.value)}
                           placeholder="Ej. 000002"
-                          disabled={newFolioMode !== "GROUP"}
                           className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                           aria-required
                         />
-                        <p className="mt-0.5 text-xs text-[var(--muted)]">
-                          {newFolioMode === "GROUP"
-                            ? "Número único para todas las habitaciones del grupo."
-                            : "Use este modo cuando necesite un folio individual por habitación (no un folio grupal único)."}
-                        </p>
                       </div>
                       <div className="relative">
                         <label className="mb-1 block text-sm font-medium text-[var(--foreground)]">Recepcionista que gestiona la reserva *</label>
@@ -855,11 +830,7 @@ export function AdminReservationsView({
                         {roomLines.map((line, index) => (
                           <div
                             key={index}
-                            className={`mb-3 grid grid-cols-1 items-end gap-3 rounded-lg border border-[var(--border)] p-3 ${
-                              newFolioMode === "PER_ROOM" && newCheckIn && newCheckOut
-                                ? "sm:grid-cols-[minmax(0,1fr)_minmax(8.5rem,9.5rem)_minmax(10rem,11rem)_auto]"
-                                : "sm:grid-cols-[minmax(0,1fr)_minmax(8.5rem,9.5rem)_auto]"
-                            } ${!newCheckIn || !newCheckOut ? "bg-[var(--muted)]/10 opacity-90" : "bg-[var(--background)]/50"}`}
+                            className={`mb-3 grid grid-cols-1 items-end gap-3 rounded-lg border border-[var(--border)] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(8.5rem,9.5rem)_auto] ${!newCheckIn || !newCheckOut ? "bg-[var(--muted)]/10 opacity-90" : "bg-[var(--background)]/50"}`}
                           >
                             <div className="min-w-0">
                               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Habitación</label>
@@ -906,22 +877,6 @@ export function AdminReservationsView({
                                 className="min-w-full"
                               />
                             </div>
-                            {newFolioMode === "PER_ROOM" && newCheckIn && newCheckOut && (
-                              <div className="min-w-[9rem]">
-                                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Folio</label>
-                                <input
-                                  type="text"
-                                  value={line.folioNumber ?? ""}
-                                  onChange={(e) =>
-                                    setRoomLines((prev) =>
-                                      prev.map((l, i) => (i === index ? { ...l, folioNumber: e.target.value } : l))
-                                    )
-                                  }
-                                  placeholder="Ej. 000125"
-                                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                                />
-                              </div>
-                            )}
                             <button
                               type="button"
                               onClick={() =>
@@ -988,9 +943,7 @@ export function AdminReservationsView({
                           </p>
                         )}
                         <div className={`mt-2 ${!(
-                          (newFolioMode === "GROUP"
-                            ? newFolioNumber?.trim()
-                            : !roomLines.some((l) => l.roomId && !(l.folioNumber?.trim()))) &&
+                          newFolioNumber?.trim() &&
                           newProcessedByName?.trim() &&
                           newGuestId &&
                           newCheckIn &&
@@ -1021,9 +974,7 @@ export function AdminReservationsView({
                             aria-label="Método de pago"
                           />
                           {!(
-                            (newFolioMode === "GROUP"
-                              ? newFolioNumber?.trim()
-                              : !roomLines.some((l) => l.roomId && !(l.folioNumber?.trim()))) &&
+                            newFolioNumber?.trim() &&
                             newProcessedByName?.trim() &&
                             newGuestId &&
                             newCheckIn &&
@@ -1102,8 +1053,7 @@ export function AdminReservationsView({
                         </button>
                         <CrearReservaSubmitButton
                           disabled={
-                            ((newFolioMode === "GROUP" && !newFolioNumber?.trim()) ||
-                            (newFolioMode === "PER_ROOM" && roomLines.some((l) => l.roomId && !(l.folioNumber?.trim()))) ||
+                            (!newFolioNumber?.trim() ||
                             !newProcessedByName?.trim() ||
                             roomLines.every((l) => !l.roomId) ||
                             (newTotalAmount > 0 && newDownPayment > newTotalAmount) ||
@@ -2046,7 +1996,21 @@ export function AdminReservationsView({
                                                               }));
                                                             return (
                                                               <div key={`${currentRoomNumber}-${index}`} className="rounded-lg border border-[var(--border)] p-2">
-                                                                <p className="mb-1 text-xs text-[var(--muted)]">Actual: Hab. {currentRoomNumber}</p>
+                                                                <div className="mb-1 flex items-center justify-between">
+                                                                  <p className="text-xs text-[var(--muted)]">Actual: Hab. {currentRoomNumber}</p>
+                                                                  {groupedRooms.length >= 2 && (
+                                                                    <button
+                                                                      type="button"
+                                                                      disabled={!!removingGroupRoom || updateRoomSaving}
+                                                                      onClick={() => setConfirmRemoveRoom(currentRoomNumber)}
+                                                                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-[var(--destructive)] hover:bg-[var(--destructive)]/10 disabled:opacity-50"
+                                                                      title={`Eliminar Hab. ${currentRoomNumber} del grupo`}
+                                                                    >
+                                                                      <Trash2 className="h-3 w-3" />
+                                                                      Quitar
+                                                                    </button>
+                                                                  )}
+                                                                </div>
                                                                 <CustomSelect
                                                                   value={editGroupRoomIds[index] ?? ""}
                                                                   onChange={(v) => setEditGroupRoomIds((prev) => prev.map((x, i) => (i === index ? v : x)))}
@@ -2059,6 +2023,42 @@ export function AdminReservationsView({
                                                             );
                                                           })}
                                                         </div>
+                                                        {confirmRemoveRoom && (
+                                                          <div className="rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 p-3 space-y-2">
+                                                            <p className="text-sm text-[var(--foreground)]">
+                                                              ¿Eliminar la <strong>Hab. {confirmRemoveRoom}</strong> de este grupo? Se borrarán sus pagos y consumos asociados. Esta acción no se puede deshacer.
+                                                            </p>
+                                                            <div className="flex gap-2">
+                                                              <button
+                                                                type="button"
+                                                                disabled={!!removingGroupRoom}
+                                                                onClick={() => setConfirmRemoveRoom(null)}
+                                                                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] hover:bg-[var(--background)]"
+                                                              >
+                                                                Cancelar
+                                                              </button>
+                                                              <button
+                                                                type="button"
+                                                                disabled={!!removingGroupRoom}
+                                                                onClick={async () => {
+                                                                  setRemovingGroupRoom(confirmRemoveRoom);
+                                                                  setUpdateRoomError(null);
+                                                                  const result = await removeRoomFromGroup(selectedReservation.id, confirmRemoveRoom);
+                                                                  setRemovingGroupRoom(null);
+                                                                  setConfirmRemoveRoom(null);
+                                                                  if (result.error) {
+                                                                    setUpdateRoomError(result.error);
+                                                                  } else {
+                                                                    router.refresh();
+                                                                  }
+                                                                }}
+                                                                className="rounded-lg bg-[var(--destructive)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                                              >
+                                                                {removingGroupRoom ? "Eliminando…" : "Sí, eliminar"}
+                                                              </button>
+                                                            </div>
+                                                          </div>
+                                                        )}
                                                       </div>
                                                     )}
                                                     <div className="flex gap-2">

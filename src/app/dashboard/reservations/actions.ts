@@ -177,8 +177,7 @@ export async function createReservationsBulk(payload: {
 
   const { guestId, checkIn: checkInStr, checkOut: checkOutStr, rooms: roomLines, downPayment, downPaymentMethod, paymentTermDays, notes, customTotalAmount, folioNumber, processedByName, downPaymentReceiptUrl, downPaymentReceiptHash } = payload;
   const folioTrim = folioNumber?.trim() ?? "";
-  const hasIndividualFolios = roomLines?.some((line) => (line.folioNumber?.trim() ?? "") !== "");
-  if (!hasIndividualFolios && !folioTrim) return { error: "El número de folio (tarjeta de ingreso) es obligatorio" };
+  if (!folioTrim) return { error: "El número de folio (tarjeta de ingreso) es obligatorio" };
   const nameTrim = processedByName?.trim() ?? "";
   if (!nameTrim) return { error: "Indique el nombre del recepcionista que gestiona la reserva" };
   const isPurchaseOrder = downPaymentMethod === "PURCHASE_ORDER";
@@ -191,9 +190,6 @@ export async function createReservationsBulk(payload: {
 
   const validLines = roomLines.filter((l) => l.roomId && l.numGuests >= 1);
   if (validLines.length === 0) return { error: "Cada habitación debe tener al menos 1 huésped" };
-  if (hasIndividualFolios && validLines.some((line) => !(line.folioNumber?.trim() ?? ""))) {
-    return { error: "Debe indicar folio individual en cada habitación" };
-  }
 
   const [yIn, mIn, dIn] = checkInStr.split("-").map(Number);
   const [yOut, mOut, dOut] = checkOutStr.split("-").map(Number);
@@ -254,8 +250,8 @@ export async function createReservationsBulk(payload: {
               guestId,
               checkIn,
               checkOut,
-              folioMode: validLines.some((line) => (line.folioNumber?.trim() ?? "") !== "") ? "INDIVIDUAL" : "GROUP",
-              folioNumber: validLines.some((line) => (line.folioNumber?.trim() ?? "") !== "") ? null : folioTrim,
+              folioMode: "GROUP",
+              folioNumber: folioTrim,
               processedByName: nameTrim,
               notes: notes?.trim() || null,
             },
@@ -287,7 +283,7 @@ export async function createReservationsBulk(payload: {
           notes: notes?.trim() || null,
           status: "PENDING",
           source: "MANUAL",
-          folioNumber: line.folioNumber?.trim() || folioTrim,
+          folioNumber: folioTrim,
           processedByName: nameTrim,
           groupId: reservationGroup?.id ?? null,
           ...companyData,
@@ -686,6 +682,85 @@ export async function updateReservationGroupRooms(
       await updateBookingRoomInMotopress(prev.motopressId, newRoom.externalId, prev.numGuests);
     } catch {
       // no bloquear: ya quedó actualizado localmente
+    }
+  }
+
+  revalidatePath("/dashboard/reservations");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export type RemoveRoomFromGroupState = { error?: string; success?: boolean };
+
+/** Elimina una habitación (reserva individual) de un grupo, manteniendo el resto. */
+export async function removeRoomFromGroup(
+  reservationId: string,
+  roomNumber: string
+): Promise<RemoveRoomFromGroupState> {
+  const session = await auth();
+  if (!session?.user?.establishmentId) return { error: "No autorizado" };
+  const establishmentId = session.user.establishmentId;
+
+  const reservation = await prisma.reservation.findFirst({
+    where: { id: reservationId, establishmentId },
+    select: { id: true, groupId: true, notes: true, status: true },
+  });
+  if (!reservation) return { error: "Reserva no encontrada" };
+
+  const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN"] as const;
+  if (!activeStatuses.includes(reservation.status as (typeof activeStatuses)[number])) {
+    return { error: "Solo se puede modificar reservas activas" };
+  }
+
+  const groupId = reservation.groupId ?? extractReservationGroupId(reservation.notes);
+  if (!groupId) return { error: "Esta reserva no pertenece a un grupo" };
+
+  const groupReservations = await prisma.reservation.findMany({
+    where: reservation.groupId
+      ? { establishmentId, groupId: reservation.groupId }
+      : { establishmentId, notes: { contains: `[GRP:${groupId}]` } },
+    include: { room: { select: { roomNumber: true } } },
+    orderBy: [{ createdAt: "asc" }],
+  });
+  if (groupReservations.length < 2) {
+    return { error: "El grupo debe tener al menos 2 habitaciones para poder eliminar una" };
+  }
+
+  const target = groupReservations.find((r) => r.room.roomNumber === roomNumber);
+  if (!target) return { error: `No se encontró la habitación ${roomNumber} en el grupo` };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.payment.deleteMany({ where: { reservationId: target.id } });
+    await tx.consumption.deleteMany({ where: { reservationId: target.id } });
+    await tx.reservation.delete({ where: { id: target.id } });
+
+    if (target.motopressId) {
+      await tx.motopressIgnoredBooking.upsert({
+        where: {
+          establishmentId_motopressId: { establishmentId, motopressId: target.motopressId },
+        },
+        create: { establishmentId, motopressId: target.motopressId },
+        update: {},
+      });
+    }
+
+    const remaining = groupReservations.filter((r) => r.id !== target.id);
+    if (remaining.length === 1 && reservation.groupId) {
+      await tx.reservation.update({
+        where: { id: remaining[0].id },
+        data: { groupId: null },
+      });
+      await tx.reservationGroup.deleteMany({
+        where: { id: reservation.groupId, establishmentId },
+      });
+    }
+  });
+
+  if (target.motopressId) {
+    try {
+      await cancelBookingInMotopress(target.motopressId);
+    } catch {
+      // No bloquear si falla en MotoPress
     }
   }
 
