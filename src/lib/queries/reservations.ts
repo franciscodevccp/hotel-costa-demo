@@ -26,7 +26,6 @@ export async function getReservations(establishmentId: string, status?: string) 
     },
     // Orden por ingreso al sistema (createdAt desc): más recientes primero; createdAt desc: misma fecha = más recientes arriba, así no “baja” al confirmar
     orderBy: { createdAt: "desc" },
-    take: 100,
   });
 }
 

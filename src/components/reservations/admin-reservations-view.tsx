@@ -499,10 +499,13 @@ export function AdminReservationsView({
         return d ? d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" }) : dateString;
     };
 
-    // Calendario: obtener reserva que incluye un día para una habitación (check-in inclusivo, check-out exclusivo)
+    // Calendario: obtener reserva que incluye un día para una habitación (check-in inclusivo, check-out exclusivo).
+    // Si hay varias reservas solapadas, prioriza las activas sobre canceladas/no_show.
     const getReservationForDay = (roomNumber: string, day: Date) => {
-        return reservations.find((r) => {
-            if (r.room_number !== roomNumber) return false;
+        const matches = reservations.filter((r) => {
+            const matchesRoom = r.room_number === roomNumber
+                || (r.grouped_room_numbers?.includes(roomNumber) ?? false);
+            if (!matchesRoom) return false;
             const start = parseLocalDateStr(r.check_in);
             const end = parseLocalDateStr(r.check_out);
             if (!start || !end) return false;
@@ -511,6 +514,9 @@ export function AdminReservationsView({
             const dayTime = day.getTime();
             return dayTime >= start.getTime() && dayTime < end.getTime();
         });
+        if (matches.length <= 1) return matches[0] ?? null;
+        const statusPriority: Record<string, number> = { checked_in: 0, confirmed: 1, pending: 2, checked_out: 3, no_show: 4, cancelled: 5 };
+        return matches.sort((a, b) => (statusPriority[a.status] ?? 9) - (statusPriority[b.status] ?? 9))[0];
     };
 
     /** Primer día de la reserva visible en este mes (check-in real o día 1 si empezó antes) */
