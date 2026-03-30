@@ -525,6 +525,7 @@ export function InvoicesView({
                       }))}
                       placeholder="Seleccionar producto"
                       aria-label="Seleccionar producto"
+                      searchable
                     />
                   </div>
                   <input

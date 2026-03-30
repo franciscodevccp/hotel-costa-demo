@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 
 export interface CustomSelectOption {
   value: string;
@@ -19,6 +19,8 @@ export interface CustomSelectProps {
   /** Si se pasan, el dropdown se controla desde fuera (ej. abrir al escribir en un campo de búsqueda). */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Muestra un campo de búsqueda dentro del dropdown para filtrar opciones. */
+  searchable?: boolean;
 }
 
 export function CustomSelect({
@@ -30,14 +32,17 @@ export function CustomSelect({
   "aria-label": ariaLabel,
   open: controlledOpen,
   onOpenChange,
+  searchable = false,
 }: CustomSelectProps) {
   const [internalOpen, setInternalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : internalOpen;
   const setOpen = (next: boolean | ((prev: boolean) => boolean)) => {
-    const value = typeof next === "function" ? next(open) : next;
-    if (isControlled && onOpenChange) onOpenChange(value);
-    else setInternalOpen(value);
+    const val = typeof next === "function" ? next(open) : next;
+    if (!val) setSearchQuery("");
+    if (isControlled && onOpenChange) onOpenChange(val);
+    else setInternalOpen(val);
   };
   const [position, setPosition] = useState<{
     top?: number;
@@ -46,10 +51,15 @@ export function CustomSelect({
     width: number;
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLUListElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = options.find((o) => o.value === value);
   const displayLabel = selectedOption ? selectedOption.label : placeholder;
+
+  const filteredOptions = searchable && searchQuery
+    ? options.filter((o) => o.label.toLowerCase().includes(searchQuery.toLowerCase()))
+    : options;
 
   const DROPDOWN_MAX_HEIGHT = 240;
   const GAP = 8;
@@ -80,6 +90,12 @@ export function CustomSelect({
   }, [open]);
 
   useEffect(() => {
+    if (open && searchable) {
+      requestAnimationFrame(() => searchInputRef.current?.focus());
+    }
+  }, [open, searchable]);
+
+  useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       const target = e.target as Node;
       if (
@@ -100,10 +116,9 @@ export function CustomSelect({
     open &&
     position &&
     typeof document !== "undefined" && (
-      <ul
+      <div
         ref={dropdownRef}
-        role="listbox"
-        className="custom-select-dropdown custom-select-dropdown-scroll fixed z-[9999] max-h-60 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
+        className="custom-select-dropdown fixed z-[9999] rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
         style={{
           ...(position.top !== undefined && { top: position.top }),
           ...(position.bottom !== undefined && { bottom: position.bottom }),
@@ -111,26 +126,48 @@ export function CustomSelect({
           minWidth: position.width,
         }}
       >
-      <li
-        role="option"
-        aria-selected={value === ""}
-        onClick={() => {
-          onChange("");
-          setOpen(false);
-        }}
-        className="cursor-pointer px-3 py-2.5 text-sm transition-colors first:rounded-t-[0.625rem] hover:bg-[var(--primary)]/10"
-        style={
-          value === ""
-            ? {
-                backgroundColor: "var(--primary)",
-                color: "var(--primary-foreground)",
-              }
-            : undefined
-        }
+      {searchable && (
+        <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] p-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted)]" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar..."
+              className="w-full rounded-md border border-[var(--border)] bg-[var(--background)] py-1.5 pl-8 pr-3 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
+      <ul
+        role="listbox"
+        className="custom-select-dropdown-scroll max-h-60 overflow-y-auto py-1"
       >
-        {placeholder}
-      </li>
-      {options.map((opt) => (
+      {!searchQuery && (
+        <li
+          role="option"
+          aria-selected={value === ""}
+          onClick={() => {
+            onChange("");
+            setOpen(false);
+          }}
+          className="cursor-pointer px-3 py-2.5 text-sm transition-colors hover:bg-[var(--primary)]/10"
+          style={
+            value === ""
+              ? {
+                  backgroundColor: "var(--primary)",
+                  color: "var(--primary-foreground)",
+                }
+              : undefined
+          }
+        >
+          {placeholder}
+        </li>
+      )}
+      {filteredOptions.map((opt) => (
         <li
           key={opt.value}
           role="option"
@@ -152,7 +189,13 @@ export function CustomSelect({
           {opt.label}
         </li>
       ))}
-    </ul>
+      {searchable && searchQuery && filteredOptions.length === 0 && (
+        <li className="px-3 py-2.5 text-sm text-[var(--muted)] text-center">
+          Sin resultados
+        </li>
+      )}
+      </ul>
+      </div>
   );
 
   return (
