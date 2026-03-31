@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { PaymentMethod, PaymentStatus, Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { extractReservationGroupId } from "@/lib/reservation-groups";
 
 const VALID_STATUSES = ["PENDING", "PARTIAL", "COMPLETED", "REFUNDED"] as const;
 const VALID_METHODS = ["CASH", "DEBIT", "CREDIT", "TRANSFER", "OTHER"] as const;
@@ -118,7 +119,7 @@ export async function completePaymentWithRest(
   receiptHash?: string | null
 ): Promise<CompletePaymentWithRestState> {
   const session = await auth();
-  if (!session?.user?.establishmentId) {
+  if (!session?.user?.establishmentId || !session.user?.id) {
     return { error: "No autorizado" };
   }
   if (typeof additionalAmount !== "number" || additionalAmount <= 0) {
@@ -134,35 +135,28 @@ export async function completePaymentWithRest(
         id: paymentId,
         establishmentId: session.user.establishmentId,
       },
-      include: { reservation: { select: { totalAmount: true, consumptions: { select: { amount: true } } } } },
+      include: {
+        reservation: {
+          select: {
+            id: true,
+            totalAmount: true,
+            groupId: true,
+            notes: true,
+            consumptions: { select: { amount: true } },
+            payments: { select: { amount: true } },
+          },
+        },
+      },
     });
     if (!payment) {
       return { error: "Pago no encontrado" };
     }
 
-    const consumptionSum = payment.reservation.consumptions.reduce((s, c) => s + c.amount, 0);
-    const totalToPay = payment.reservation.totalAmount + consumptionSum;
-    const newAmount = payment.amount + Math.round(additionalAmount);
-    if (newAmount > totalToPay) {
-      return { error: `El monto no puede superar el total de la reserva (${totalToPay} CLP)` };
-    }
-    // Si aún falta por pagar → Pago de abono (PARTIAL); si ya cubre todo → Pago total (COMPLETED)
-    const newStatus = newAmount >= totalToPay ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
-
-    const currentMethods = payment.additionalMethods ?? [];
-    const isSameAsInitial = payment.method === method;
-    const alreadyInList = currentMethods.includes(method);
-    const newMethods: PaymentMethod[] =
-      isSameAsInitial || alreadyInList ? [...currentMethods] : [...currentMethods, method];
-
     type ReceiptEntry = { url: string; amount: number; method: string; hash?: string };
     const paymentWithUrls = payment as typeof payment & { receiptUrls?: string[]; receiptEntries?: ReceiptEntry[] | null };
-    const currentReceiptUrls =
-      paymentWithUrls.receiptUrls?.length ? paymentWithUrls.receiptUrls : (payment.receiptUrl ? [payment.receiptUrl] : []);
-    const newReceiptUrls = receiptUrl ? [...currentReceiptUrls, receiptUrl] : currentReceiptUrls;
 
-    const currentEntries = (paymentWithUrls.receiptEntries ?? []) as ReceiptEntry[];
     if (receiptUrl && receiptHash) {
+      const currentEntries = (paymentWithUrls.receiptEntries ?? []) as ReceiptEntry[];
       const alreadyUsed = currentEntries.some((e) => e.hash === receiptHash);
       if (alreadyUsed) {
         return {
@@ -171,20 +165,129 @@ export async function completePaymentWithRest(
         };
       }
     }
-    const newEntries: ReceiptEntry[] = receiptUrl
-      ? [...currentEntries, { url: receiptUrl, amount: Math.round(additionalAmount), method, hash: receiptHash ?? undefined }]
-      : currentEntries;
 
-    await prisma.payment.update({
-      where: { id: paymentId },
-      data: {
-        amount: newAmount,
-        status: newStatus,
-        additionalMethods: newMethods,
-        receiptUrls: newReceiptUrls,
-        ...(newEntries.length > 0 && { receiptEntries: newEntries as Parameters<typeof prisma.payment.update>[0]["data"] extends { receiptEntries?: infer J } ? J : never }),
-      },
-    });
+    const groupId =
+      payment.reservation.groupId ??
+      extractReservationGroupId((payment.reservation as { notes?: string | null }).notes ?? null);
+
+    if (groupId) {
+      const groupReservations = await prisma.reservation.findMany({
+        where: {
+          establishmentId: session.user.establishmentId,
+          OR: [{ groupId }, { notes: { contains: `[GRP:${groupId}]` } }],
+        },
+        include: { payments: true, consumptions: { select: { amount: true } } },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const totals = groupReservations.map((r) => {
+        const cSum = r.consumptions.reduce((s, c) => s + c.amount, 0);
+        const total = r.totalAmount + cSum;
+        const paid = r.payments.reduce((s, p) => s + p.amount, 0);
+        const pending = Math.max(0, total - paid);
+        return { reservationId: r.id, total, paid, pending };
+      });
+      const groupPending = totals.reduce((s, t) => s + t.pending, 0);
+      const roundedAmount = Math.round(additionalAmount);
+
+      if (roundedAmount > groupPending) {
+        return { error: `El monto no puede superar el pendiente del grupo (${groupPending} CLP)` };
+      }
+
+      let remaining = roundedAmount;
+      const thisReservationInfo = totals.find((t) => t.reservationId === payment.reservationId);
+      if (thisReservationInfo && thisReservationInfo.pending > 0 && remaining > 0) {
+        const chunk = Math.min(remaining, thisReservationInfo.pending);
+        const newAmount = payment.amount + chunk;
+        const newStatus = newAmount >= thisReservationInfo.total ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+
+        const currentMethods = payment.additionalMethods ?? [];
+        const isSameAsInitial = payment.method === method;
+        const alreadyInList = currentMethods.includes(method);
+        const newMethods: PaymentMethod[] =
+          isSameAsInitial || alreadyInList ? [...currentMethods] : [...currentMethods, method];
+
+        const currentReceiptUrls =
+          paymentWithUrls.receiptUrls?.length ? paymentWithUrls.receiptUrls : (payment.receiptUrl ? [payment.receiptUrl] : []);
+        const newReceiptUrls = receiptUrl ? [...currentReceiptUrls, receiptUrl] : currentReceiptUrls;
+        const currentEntries = (paymentWithUrls.receiptEntries ?? []) as ReceiptEntry[];
+        const newEntries: ReceiptEntry[] = receiptUrl
+          ? [...currentEntries, { url: receiptUrl, amount: chunk, method, hash: receiptHash ?? undefined }]
+          : currentEntries;
+
+        await prisma.payment.update({
+          where: { id: paymentId },
+          data: {
+            amount: newAmount,
+            status: newStatus,
+            additionalMethods: newMethods,
+            receiptUrls: newReceiptUrls,
+            ...(newEntries.length > 0 && { receiptEntries: newEntries as Parameters<typeof prisma.payment.update>[0]["data"] extends { receiptEntries?: infer J } ? J : never }),
+          },
+        });
+        remaining -= chunk;
+        thisReservationInfo.pending -= chunk;
+      }
+
+      for (const t of totals) {
+        if (remaining <= 0) break;
+        if (t.reservationId === payment.reservationId) continue;
+        if (t.pending <= 0) continue;
+        const chunk = Math.min(remaining, t.pending);
+        const status = chunk >= t.pending ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+        const receiptUrls = receiptUrl ? [receiptUrl] : [];
+        const receiptEntries = receiptUrl ? [{ url: receiptUrl, amount: chunk, method, hash: receiptHash ?? undefined }] : undefined;
+        await prisma.payment.create({
+          data: {
+            establishmentId: session.user.establishmentId,
+            reservationId: t.reservationId,
+            registeredById: session.user.id!,
+            amount: chunk,
+            method,
+            status,
+            notes: "Pago grupal registrado desde Pagos",
+            receiptUrl: receiptUrl ?? null,
+            receiptUrls,
+            ...(receiptEntries && { receiptEntries }),
+          } as Parameters<typeof prisma.payment.create>[0]["data"],
+        });
+        remaining -= chunk;
+      }
+    } else {
+      const consumptionSum = payment.reservation.consumptions.reduce((s, c) => s + c.amount, 0);
+      const totalToPay = payment.reservation.totalAmount + consumptionSum;
+      const newAmount = payment.amount + Math.round(additionalAmount);
+      if (newAmount > totalToPay) {
+        return { error: `El monto no puede superar el total de la reserva (${totalToPay} CLP)` };
+      }
+      const newStatus = newAmount >= totalToPay ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+
+      const currentMethods = payment.additionalMethods ?? [];
+      const isSameAsInitial = payment.method === method;
+      const alreadyInList = currentMethods.includes(method);
+      const newMethods: PaymentMethod[] =
+        isSameAsInitial || alreadyInList ? [...currentMethods] : [...currentMethods, method];
+
+      const currentReceiptUrls =
+        paymentWithUrls.receiptUrls?.length ? paymentWithUrls.receiptUrls : (payment.receiptUrl ? [payment.receiptUrl] : []);
+      const newReceiptUrls = receiptUrl ? [...currentReceiptUrls, receiptUrl] : currentReceiptUrls;
+      const currentEntries = (paymentWithUrls.receiptEntries ?? []) as ReceiptEntry[];
+      const newEntries: ReceiptEntry[] = receiptUrl
+        ? [...currentEntries, { url: receiptUrl, amount: Math.round(additionalAmount), method, hash: receiptHash ?? undefined }]
+        : currentEntries;
+
+      await prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          amount: newAmount,
+          status: newStatus,
+          additionalMethods: newMethods,
+          receiptUrls: newReceiptUrls,
+          ...(newEntries.length > 0 && { receiptEntries: newEntries as Parameters<typeof prisma.payment.update>[0]["data"] extends { receiptEntries?: infer J } ? J : never }),
+        },
+      });
+    }
+
     revalidatePath("/dashboard/payments");
     revalidatePath("/dashboard/pending-payments");
     revalidatePath("/dashboard/reservations");
